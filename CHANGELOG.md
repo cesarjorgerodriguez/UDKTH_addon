@@ -4,16 +4,18 @@
 
 ### Changed
 - **Enemy Detection System (rewritten)**
-  - Replaced per-tick nameplate loop with event-driven table (`NAME_PLATE_UNIT_ADDED/REMOVED`)
-  - Real mode also counts enemies with threat (`UnitThreatSituation ~= nil`), not just in-combat ones
+  - Replaced `for i = 1, 40` nameplate loop with an event-driven system (`NAME_PLATE_UNIT_ADDED/REMOVED`)
+  - Only active nameplates are stored at any given time, removing unnecessary iterations
   - Current target is always counted even without a visible nameplate
   - Added `UNIT_FLAGS` handler to drop mobs that turn friendly (e.g. Mind Control)
+  - Registered `PLAYER_TARGET_CHANGED` to update the icon immediately on target switch
+  - Real mode: fixed threat check to `~= nil` (previously `>= 0` caused taint)
 
 ### Fixed
-- **WoW 12.0.1 (Midnight) compatibility**
-  - Removed `COMBAT_LOG_EVENT_UNFILTERED` — blocked by `ADDON_ACTION_FORBIDDEN`
-  - Removed `bit.band()` — deprecated in 12.0.1
-  - Replaced `UnitHealth() <= 1` and `UnitThreatSituation() >= 0` comparisons — these return secret numbers that cause taint
+- **Instance compatibility in WoW 12.0.1**
+  - Removed all `UnitGUID()` usage — returns tainted/secret values for nameplate units inside instances
+  - Replaced GUID-based deduplication (`counted[guid]`) with `UnitIsUnit()` for target matching
+  - `npGUIDs`/`npUnits` tables replaced by `npActive[unit] = true` (no secret values as table keys)
 
 ---
 

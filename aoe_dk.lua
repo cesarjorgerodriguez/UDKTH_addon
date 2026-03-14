@@ -204,9 +204,7 @@ local detectionMode = "real" -- "real" o "dummy"
 -- 1) Nameplates via eventos NAME_PLATE_UNIT_ADDED/REMOVED
 -- 2) Target actual siempre se cuenta si es valido
 ---------------------------------------------------------------------------
-local npGUIDs = {}    -- [unit] = guid  (nameplates activas de enemigos)
-local npUnits = {}    -- [guid] = unit  (reverse lookup)
-local playerGUID = nil
+local npActive = {}   -- [unit] = true  (nameplates activas de enemigos)
 
 -- Tracking de nameplates via eventos
 local npTracker = CreateFrame("Frame")
@@ -217,29 +215,15 @@ npTracker:RegisterEvent("PLAYER_ENTERING_WORLD")
 npTracker:SetScript("OnEvent", function(_, event, unit)
     if event == "NAME_PLATE_UNIT_ADDED" then
         if UnitIsFriend("player", unit) then return end
-        local guid = UnitGUID(unit)
-        if guid then
-            npGUIDs[unit] = guid
-            npUnits[guid] = unit
-        end
+        npActive[unit] = true
     elseif event == "NAME_PLATE_UNIT_REMOVED" then
-        local guid = npGUIDs[unit]
-        npGUIDs[unit] = nil
-        if guid and npUnits[guid] == unit then
-            npUnits[guid] = nil
-        end
+        npActive[unit] = nil
     elseif event == "UNIT_FLAGS" then
-        if npGUIDs[unit] and UnitIsFriend("player", unit) then
-            local guid = npGUIDs[unit]
-            npGUIDs[unit] = nil
-            if guid and npUnits[guid] == unit then
-                npUnits[guid] = nil
-            end
+        if npActive[unit] and UnitIsFriend("player", unit) then
+            npActive[unit] = nil
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        playerGUID = UnitGUID("player")
-        wipe(npGUIDs)
-        wipe(npUnits)
+        wipe(npActive)
     end
 end)
 
@@ -253,38 +237,39 @@ end
 
 local function GetEnemyCount()
     local count = 0
-    local counted = {} -- evitar duplicados por GUID
+    local targetCounted = false
 
     -- Paso 1: Nameplates activas (fuente principal, via eventos)
-    for unit, guid in pairs(npGUIDs) do
+    for unit in pairs(npActive) do
         if IsValidEnemy(unit) then
             if detectionMode == "dummy" or forceShow then
                 count = count + 1
-                counted[guid] = true
+                if not targetCounted and UnitExists("target") and UnitIsUnit(unit, "target") then
+                    targetCounted = true
+                end
             else
                 -- Real mode: solo mobs en combate o con threat
                 local inCbt = UnitAffectingCombat(unit)
                 local threat = UnitThreatSituation("player", unit)
                 if inCbt or (threat ~= nil) then
                     count = count + 1
-                    counted[guid] = true
+                    if not targetCounted and UnitExists("target") and UnitIsUnit(unit, "target") then
+                        targetCounted = true
+                    end
                 end
             end
         end
     end
 
-    -- Paso 2: Siempre contar target actual si es valido
-    if UnitExists("target") then
-        local tGUID = UnitGUID("target")
-        if tGUID and not counted[tGUID] and IsValidEnemy("target") then
-            if detectionMode == "dummy" or forceShow then
+    -- Paso 2: Siempre contar target actual si es valido y no fue contado
+    if not targetCounted and UnitExists("target") and IsValidEnemy("target") then
+        if detectionMode == "dummy" or forceShow then
+            count = count + 1
+        else
+            local inCbt = UnitAffectingCombat("target")
+            local threat = UnitThreatSituation("player", "target")
+            if inCbt or (threat ~= nil) then
                 count = count + 1
-            else
-                local inCbt = UnitAffectingCombat("target")
-                local threat = UnitThreatSituation("player", "target")
-                if inCbt or (threat ~= nil) then
-                    count = count + 1
-                end
             end
         end
     end
@@ -629,11 +614,7 @@ resetBtn:SetText(L.RESET_POSITION)
 resetBtn:SetScript("OnClick", function()
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    AoeDKDB = AoeDKDB or {}
-    AoeDKDB.point = nil
-    AoeDKDB.relPoint = nil
-    AoeDKDB.x = nil
-    AoeDKDB.y = nil
+    AoeDKDB = {}
     print("|cff00ccff[AoE DK]|r " .. L.MSG_POSITION_RESET)
 end)
 
@@ -700,16 +681,15 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  isUnlocked: " .. tostring(isUnlocked))
         print("  forceShow: " .. tostring(forceShow))
         local npCount = 0
-        for _ in pairs(npGUIDs) do npCount = npCount + 1 end
+        for _ in pairs(npActive) do npCount = npCount + 1 end
         print("  Tracked nameplates: " .. npCount)
-        for unit, guid in pairs(npGUIDs) do
+        for unit in pairs(npActive) do
             local name = UnitName(unit) or "?"
             local dead = UnitIsDead(unit)
             local canAtk = UnitCanAttack("player", unit)
-            local hp = UnitHealth(unit)
             local inCbt = UnitAffectingCombat(unit)
             local threat = UnitThreatSituation("player", unit)
-            print("    " .. unit .. ": " .. name .. " canAttack=" .. tostring(canAtk) .. " dead=" .. tostring(dead) .. " hp=" .. hp .. " combat=" .. tostring(inCbt) .. " threat=" .. tostring(threat))
+            print("    " .. unit .. ": " .. name .. " canAttack=" .. tostring(canAtk) .. " dead=" .. tostring(dead) .. " combat=" .. tostring(inCbt) .. " threat=" .. tostring(threat))
         end
     elseif cmd == "auras" then
         print("|cff00ccff[AoE DK] " .. L.BUFFS_ACTIVE .. "|r")
