@@ -1,5 +1,22 @@
 # Unholy Death Knight Target Helper - Changelog
 
+## [1.0.2] - 2026-03-14
+
+### Changed
+- **Enemy Detection System (rewritten)**
+  - Replaced per-tick nameplate loop with event-driven table (`NAME_PLATE_UNIT_ADDED/REMOVED`)
+  - Real mode also counts enemies with threat (`UnitThreatSituation ~= nil`), not just in-combat ones
+  - Current target is always counted even without a visible nameplate
+  - Added `UNIT_FLAGS` handler to drop mobs that turn friendly (e.g. Mind Control)
+
+### Fixed
+- **WoW 12.0.1 (Midnight) compatibility**
+  - Removed `COMBAT_LOG_EVENT_UNFILTERED` — blocked by `ADDON_ACTION_FORBIDDEN`
+  - Removed `bit.band()` — deprecated in 12.0.1
+  - Replaced `UnitHealth() <= 1` and `UnitThreatSituation() >= 0` comparisons — these return secret numbers that cause taint
+
+---
+
 ## [1.0.1] - 2026-03-13
 
 ### Added

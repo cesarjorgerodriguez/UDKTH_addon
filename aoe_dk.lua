@@ -199,27 +199,96 @@ local currentSpellID = nil
 local forceShow = false  -- para /aoedk test
 local detectionMode = "real" -- "real" o "dummy"
 
+---------------------------------------------------------------------------
+-- Sistema de deteccion de enemigos
+-- 1) Nameplates via eventos NAME_PLATE_UNIT_ADDED/REMOVED
+-- 2) Target actual siempre se cuenta si es valido
+---------------------------------------------------------------------------
+local npGUIDs = {}    -- [unit] = guid  (nameplates activas de enemigos)
+local npUnits = {}    -- [guid] = unit  (reverse lookup)
+local playerGUID = nil
+
+-- Tracking de nameplates via eventos
+local npTracker = CreateFrame("Frame")
+npTracker:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+npTracker:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+npTracker:RegisterEvent("UNIT_FLAGS")
+npTracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+npTracker:SetScript("OnEvent", function(_, event, unit)
+    if event == "NAME_PLATE_UNIT_ADDED" then
+        if UnitIsFriend("player", unit) then return end
+        local guid = UnitGUID(unit)
+        if guid then
+            npGUIDs[unit] = guid
+            npUnits[guid] = unit
+        end
+    elseif event == "NAME_PLATE_UNIT_REMOVED" then
+        local guid = npGUIDs[unit]
+        npGUIDs[unit] = nil
+        if guid and npUnits[guid] == unit then
+            npUnits[guid] = nil
+        end
+    elseif event == "UNIT_FLAGS" then
+        if npGUIDs[unit] and UnitIsFriend("player", unit) then
+            local guid = npGUIDs[unit]
+            npGUIDs[unit] = nil
+            if guid and npUnits[guid] == unit then
+                npUnits[guid] = nil
+            end
+        end
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        playerGUID = UnitGUID("player")
+        wipe(npGUIDs)
+        wipe(npUnits)
+    end
+end)
+
+-- Verificar si una unidad es un enemigo valido para contar
+local function IsValidEnemy(unit)
+    if not UnitExists(unit) then return false end
+    if UnitIsDead(unit) then return false end
+    if not UnitCanAttack("player", unit) then return false end
+    return true
+end
+
 local function GetEnemyCount()
     local count = 0
-    for i = 1, 8 do
-        local unit = "nameplate" .. i
-        if UnitExists(unit)
-            and not UnitIsDead(unit)
-            and not UnitIsFriend("player", unit)
-        then
+    local counted = {} -- evitar duplicados por GUID
+
+    -- Paso 1: Nameplates activas (fuente principal, via eventos)
+    for unit, guid in pairs(npGUIDs) do
+        if IsValidEnemy(unit) then
             if detectionMode == "dummy" or forceShow then
-                -- Dummy mode: contar todo enemigo con nameplate visible
                 count = count + 1
+                counted[guid] = true
             else
-                -- Real mode: solo mobs en combate o con threat sobre ti
+                -- Real mode: solo mobs en combate o con threat
                 local inCbt = UnitAffectingCombat(unit)
                 local threat = UnitThreatSituation("player", unit)
-                if inCbt or (threat and threat >= 0) then
+                if inCbt or (threat ~= nil) then
+                    count = count + 1
+                    counted[guid] = true
+                end
+            end
+        end
+    end
+
+    -- Paso 2: Siempre contar target actual si es valido
+    if UnitExists("target") then
+        local tGUID = UnitGUID("target")
+        if tGUID and not counted[tGUID] and IsValidEnemy("target") then
+            if detectionMode == "dummy" or forceShow then
+                count = count + 1
+            else
+                local inCbt = UnitAffectingCombat("target")
+                local threat = UnitThreatSituation("player", "target")
+                if inCbt or (threat ~= nil) then
                     count = count + 1
                 end
             end
         end
     end
+
     return count
 end
 
@@ -356,6 +425,7 @@ frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("UNIT_AURA")
+frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
@@ -379,6 +449,10 @@ frame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "UNIT_AURA" and arg1 == "player" then
         if UnitAffectingCombat("player") or forceShow then
             currentSpellID = nil
+            UpdateIcon()
+        end
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        if UnitAffectingCombat("player") or forceShow then
             UpdateIcon()
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
@@ -625,16 +699,17 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  " .. L.DEBUG_VISIBLE .. ": " .. tostring(frame:IsShown()))
         print("  isUnlocked: " .. tostring(isUnlocked))
         print("  forceShow: " .. tostring(forceShow))
-        for _, plateInfo in ipairs(C_NamePlate.GetNamePlates()) do
-            local unit = plateInfo.namePlateUnitToken
-            if unit then
-                local name = UnitName(unit) or "?"
-                local friend = UnitIsFriend("player", unit)
-                local dead = UnitIsDead(unit)
-                local inCbt = UnitAffectingCombat(unit)
-                local threat = UnitThreatSituation("player", unit)
-                print("    " .. unit .. ": " .. name .. " friend=" .. tostring(friend) .. " dead=" .. tostring(dead) .. " inCombat=" .. tostring(inCbt) .. " threat=" .. tostring(threat))
-            end
+        local npCount = 0
+        for _ in pairs(npGUIDs) do npCount = npCount + 1 end
+        print("  Tracked nameplates: " .. npCount)
+        for unit, guid in pairs(npGUIDs) do
+            local name = UnitName(unit) or "?"
+            local dead = UnitIsDead(unit)
+            local canAtk = UnitCanAttack("player", unit)
+            local hp = UnitHealth(unit)
+            local inCbt = UnitAffectingCombat(unit)
+            local threat = UnitThreatSituation("player", unit)
+            print("    " .. unit .. ": " .. name .. " canAttack=" .. tostring(canAtk) .. " dead=" .. tostring(dead) .. " hp=" .. hp .. " combat=" .. tostring(inCbt) .. " threat=" .. tostring(threat))
         end
     elseif cmd == "auras" then
         print("|cff00ccff[AoE DK] " .. L.BUFFS_ACTIVE .. "|r")
