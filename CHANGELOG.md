@@ -1,5 +1,38 @@
 # Unholy Death Knight Target Helper - Changelog
 
+## [1.1.0] - 2026-03-21
+
+### Added
+- **Configurable Epidemic threshold**
+  - New options panel section: ± buttons to set the enemy breakpoint for Epidemic (range 2–6, default 4)
+  - Army of the Dead breakpoints (Epidemic / Necrotic Coil / Graveyard) scale relative to the configured threshold
+  - Setting persists across sessions via `AoeDKDB.epidemicThreshold`
+  - Localized label: English `"Epidemic threshold"` / Spanish `"Umbral de Epidemia"`
+- **Combat fade animations**
+  - Fade-in (0.3s) when entering combat (`PLAYER_REGEN_DISABLED`)
+  - Fade-out (0.4s) when leaving combat (`PLAYER_REGEN_ENABLED`); frame hidden only after fade completes
+  - Re-entering combat mid-fade cancels the hide gracefully
+- **Icon tooltip**
+  - Hovering the icon shows the suggested spell name (or drag hint when unlocked)
+  - Works in both locked and unlocked states
+
+### Fixed
+- **Variable scoping bug** — `currentSpellID`, `forceShow` and `detectionMode` were declared after `ShowAnchor`/`HideAnchor`, causing those functions to read/write a different global instead of the intended local. Declarations moved before both functions.
+- **Reset wiped all settings** — `/aoedk reset` and the Reset button now only clear position fields (`point`, `relPoint`, `x`, `y`); icon size, alpha, text visibility and detection mode are preserved.
+- **`detectionMode` not persisted** — Mode is now saved to `AoeDKDB.detectionMode` on every change and restored on `ADDON_LOADED`.
+- **Drag guard** — `OnDragStart` now checks `isUnlocked` before calling `StartMoving`; the frame can no longer be accidentally dragged while locked.
+- **`frame:EnableMouse(false)` after lock removed** — Mouse input stays enabled at all times so the tooltip works regardless of lock state. Dragging is gated by the `isUnlocked` check instead.
+- **`/aoedk auras` iteration** — Replaced hardcoded `for i = 1, 40` loops with `AuraUtil.ForEachAura()` to correctly iterate all auras without an arbitrary cap.
+- **Redundant `AoeDKDB = AoeDKDB or {}`** — Removed ~10 duplicate guards from button callbacks and `OnDragStop`; `AoeDKDB` is guaranteed to be initialized by `ADDON_LOADED` before any interaction is possible.
+
+### Performance
+- **`UNIT_AURA` scope** — Changed from `RegisterEvent` to `RegisterUnitEvent("UNIT_AURA", "player")`. The event no longer fires for every unit in range, only for the player's own auras.
+- **Class/spec cache** — `UnitClass("player")` and `GetSpecialization()` results are cached in `cachedClassID`/`cachedSpecIndex` and refreshed only on `PLAYER_SPECIALIZATION_CHANGED` and `PLAYER_ENTERING_WORLD`. `UpdateIcon()` no longer calls these APIs on every tick.
+- **`UnitExists("target")` deduplicated** — Called once at the top of `GetEnemyCount()` and reused via a local `hasTarget` variable instead of three separate calls.
+- **Options panel height** — Increased from 310 to 360 px to accommodate the new threshold controls.
+
+---
+
 ## [1.0.2] - 2026-03-14
 
 ### Changed
