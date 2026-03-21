@@ -97,12 +97,15 @@ frame:SetMovable(true)
 frame:SetClampedToScreen(true)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
-frame:SetScript("OnDragStart", frame.StartMoving)
+local isUnlocked = false
+frame:SetScript("OnDragStart", function(self)
+    if isUnlocked then self:StartMoving() end
+end)
 frame:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
+    if not isUnlocked then return end
     -- Guardar posicion
     local point, _, relPoint, x, y = self:GetPoint()
-    AoeDKDB = AoeDKDB or {}
     AoeDKDB.point    = point
     AoeDKDB.relPoint = relPoint
     AoeDKDB.x        = x
@@ -134,9 +137,6 @@ local spellText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 spellText:SetPoint("TOP", frame, "BOTTOM", 0, -4)
 spellText:SetTextColor(1, 1, 1)
 
--- Estado de unlock (ancla visible para localizar y mover)
-local isUnlocked = false
-
 -- Declaradas antes de ShowAnchor/HideAnchor para que ambas funciones capturen los locales correctos
 local currentSpellID = nil
 local forceShow = false       -- para /aoedk test
@@ -151,6 +151,23 @@ local function RefreshClassSpec()
     cachedSpecIndex = GetSpecialization()
 end
 
+-- Tooltip: muestra nombre del spell actual (bloqueado) o instruccion de mover (desbloqueado)
+frame:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine("|cff00ccffAoE DK|r")
+    if isUnlocked then
+        GameTooltip:AddLine(L.DRAG_TO_MOVE, 0.8, 0.8, 0.8)
+    elseif currentSpellID then
+        local spellInfo = C_Spell.GetSpellInfo(currentSpellID)
+        if spellInfo then GameTooltip:AddLine(spellInfo.name, 1, 1, 1) end
+    end
+    GameTooltip:Show()
+end)
+frame:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+end)
+
 local function ShowAnchor()
     isUnlocked = true
     icon:SetTexture("Interface\\Icons\\Spell_DeathKnight_Explode_Ghoul")
@@ -163,20 +180,18 @@ local function ShowAnchor()
     spellText:SetText(L.DRAG_TO_MOVE)
     spellText:SetTextColor(0, 0.8, 1)
     spellText:Show()
-    frame:EnableMouse(true)
     frame:Show()
 end
 
 local function HideAnchor()
     isUnlocked = false
-    AoeDKDB = AoeDKDB or {}
     icon:SetAlpha(AoeDKDB.iconAlpha or ICON_ALPHA)
     countText:SetText("")
     spellText:SetText("")
     frame:SetBackdropColor(0, 0, 0, 0)
     frame:SetBackdropBorderColor(0, 0, 0, 1)
     currentSpellID = nil
-    if AoeDKDB and AoeDKDB.showText == false then
+    if AoeDKDB.showText == false then
         countText:Hide()
         spellText:Hide()
     end
@@ -191,7 +206,6 @@ end
 ---------------------------------------------------------------------------
 local function ApplyIconSize(size)
     frame:SetSize(size, size)
-    AoeDKDB = AoeDKDB or {}
     AoeDKDB.iconSize = size
 end
 
@@ -199,7 +213,6 @@ local function ApplyIconAlpha(alpha)
     alpha = math.max(0.1, math.min(1.0, alpha))
     -- Redondear a 1 decimal
     alpha = math.floor(alpha * 10 + 0.5) / 10
-    AoeDKDB = AoeDKDB or {}
     AoeDKDB.iconAlpha = alpha
     if not isUnlocked then
         icon:SetAlpha(alpha)
@@ -436,6 +449,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             countText:Hide()
             spellText:Hide()
         end
+        detectionMode = AoeDKDB.detectionMode or "real"
         RefreshClassSpec()
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "UNIT_AURA" and arg1 == "player" then
@@ -509,7 +523,6 @@ UpdateMoveBtnText()
 moveBtn:SetScript("OnClick", function()
     if isUnlocked then
         HideAnchor()
-        frame:EnableMouse(false)
     else
         ShowAnchor()
     end
@@ -535,7 +548,6 @@ sizeDown:SetSize(36, 24)
 sizeDown:SetPoint("RIGHT", sizeValue, "LEFT", -10, 0)
 sizeDown:SetText("-")
 sizeDown:SetScript("OnClick", function()
-    AoeDKDB = AoeDKDB or {}
     local s = math.max(32, (AoeDKDB.iconSize or ICON_SIZE) - 8)
     ApplyIconSize(s)
     UpdateSizeValue()
@@ -546,7 +558,6 @@ sizeUp:SetSize(36, 24)
 sizeUp:SetPoint("LEFT", sizeValue, "RIGHT", 10, 0)
 sizeUp:SetText("+")
 sizeUp:SetScript("OnClick", function()
-    AoeDKDB = AoeDKDB or {}
     local s = math.min(128, (AoeDKDB.iconSize or ICON_SIZE) + 8)
     ApplyIconSize(s)
     UpdateSizeValue()
@@ -572,7 +583,6 @@ alphaDown:SetSize(36, 24)
 alphaDown:SetPoint("RIGHT", alphaValue, "LEFT", -10, 0)
 alphaDown:SetText("-")
 alphaDown:SetScript("OnClick", function()
-    AoeDKDB = AoeDKDB or {}
     local a = math.max(0.1, (AoeDKDB.iconAlpha or ICON_ALPHA) - 0.1)
     ApplyIconAlpha(a)
     UpdateAlphaValue()
@@ -583,7 +593,6 @@ alphaUp:SetSize(36, 24)
 alphaUp:SetPoint("LEFT", alphaValue, "RIGHT", 10, 0)
 alphaUp:SetText("+")
 alphaUp:SetScript("OnClick", function()
-    AoeDKDB = AoeDKDB or {}
     local a = math.min(1.0, (AoeDKDB.iconAlpha or ICON_ALPHA) + 0.1)
     ApplyIconAlpha(a)
     UpdateAlphaValue()
@@ -602,7 +611,6 @@ end
 UpdateTextBtnLabel()
 
 textBtn:SetScript("OnClick", function()
-    AoeDKDB = AoeDKDB or {}
     local show = AoeDKDB.showText ~= false
     AoeDKDB.showText = not show
     if AoeDKDB.showText then
@@ -623,7 +631,10 @@ resetBtn:SetText(L.RESET_POSITION)
 resetBtn:SetScript("OnClick", function()
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    AoeDKDB = {}
+    AoeDKDB.point    = nil
+    AoeDKDB.relPoint = nil
+    AoeDKDB.x        = nil
+    AoeDKDB.y        = nil
     print("|cff00ccff[AoE DK]|r " .. L.MSG_POSITION_RESET)
 end)
 
@@ -649,7 +660,6 @@ SlashCmdList["AOEDK"] = function(msg)
 
     if cmd == "lock" then
         HideAnchor()
-        frame:EnableMouse(false)
         print("|cff00ccff[AoE DK]|r " .. L.MSG_LOCKED)
     elseif cmd == "unlock" then
         ShowAnchor()
@@ -657,7 +667,10 @@ SlashCmdList["AOEDK"] = function(msg)
     elseif cmd == "reset" then
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-        AoeDKDB = {}
+        AoeDKDB.point    = nil
+        AoeDKDB.relPoint = nil
+        AoeDKDB.x        = nil
+        AoeDKDB.y        = nil
         print("|cff00ccff[AoE DK]|r " .. L.MSG_POSITION_RESET)
     elseif cmd == "test" then
         forceShow = not forceShow
@@ -702,23 +715,21 @@ SlashCmdList["AOEDK"] = function(msg)
         end
     elseif cmd == "auras" then
         print("|cff00ccff[AoE DK] " .. L.BUFFS_ACTIVE .. "|r")
-        for i = 1, 40 do
-            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
-            if not aura then break end
+        AuraUtil.ForEachAura("player", "HELPFUL", nil, function(aura)
             print("  [" .. (aura.spellId or "?") .. "] " .. (aura.name or "?") .. " (quedan " .. string.format("%.1f", (aura.expirationTime or 0) - GetTime()) .. "s)")
-        end
+        end)
         print("|cff00ccff[AoE DK] " .. L.DEBUFFS_ACTIVE .. "|r")
-        for i = 1, 40 do
-            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
-            if not aura then break end
+        AuraUtil.ForEachAura("player", "HARMFUL", nil, function(aura)
             print("  [" .. (aura.spellId or "?") .. "] " .. (aura.name or "?"))
-        end
+        end)
     elseif cmd == "mode" then
         if arg == "dummy" then
             detectionMode = "dummy"
+            AoeDKDB.detectionMode = "dummy"
             print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_DUMMY)
         elseif arg == "real" then
             detectionMode = "real"
+            AoeDKDB.detectionMode = "real"
             print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_REAL)
         else
             print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_CURRENT .. " |cffffff00" .. detectionMode .. "|r")
