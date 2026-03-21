@@ -38,6 +38,7 @@ L.DEBUG_MODE = "Mode"
 L.DEBUG_VISIBLE = "Frame visible"
 L.BUFFS_ACTIVE = "Active BUFFS:"
 L.DEBUFFS_ACTIVE = "Active DEBUFFS:"
+L.EPIDEMIC_THRESHOLD = "Epidemic threshold"
 
 -- Spanish
 if locale == "esES" or locale == "esMX" then
@@ -71,6 +72,7 @@ if locale == "esES" or locale == "esMX" then
     L.DEBUG_VISIBLE = "Frame visible"
     L.BUFFS_ACTIVE = "BUFFS activos:"
     L.DEBUFFS_ACTIVE = "DEBUFFS activos:"
+    L.EPIDEMIC_THRESHOLD = "Umbral de Epidemia"
 end
 
 -- Spell IDs
@@ -86,6 +88,7 @@ local ARMY_BUFF_ID = 1242223
 local UPDATE_INTERVAL = 0.15      -- Segundos entre actualizaciones
 local ICON_SIZE = 64              -- Tamaño del icono en pixeles
 local ICON_ALPHA = 1.0            -- Transparencia del icono (0.1 a 1.0)
+local EPIDEMIC_THRESHOLD = 4      -- Enemigos minimos para sugerir Epidemia (configurable 2-6)
 
 ---------------------------------------------------------------------------
 -- Frame principal
@@ -344,27 +347,30 @@ local function UpdateIcon()
     local spellID
     local armyUp = IsArmyActive()
 
+    local threshold = AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD
+
     if armyUp then
         -- Con Ejercito de los Muertos: habilidades mejoradas
-        if enemyCount >= 5 then
+        -- Los breakpoints de Army escalan con el umbral configurado
+        if enemyCount >= (threshold + 1) then
             spellID = GRAVEYARD_ID
-        elseif enemyCount >= 4 then
+        elseif enemyCount >= threshold then
             spellID = NECROTIC_COIL_ID
-        elseif enemyCount >= 3 then
+        elseif enemyCount >= (threshold - 1) then
             spellID = EPIDEMIC_ID
         else
             spellID = DEATH_COIL_ID
         end
     else
-        -- Sin Ejercito: normal
-        if enemyCount >= 4 then
+        -- Sin Ejercito: usar umbral configurable
+        if enemyCount >= threshold then
             spellID = EPIDEMIC_ID
         else
             spellID = DEATH_COIL_ID
         end
     end
 
-    -- Actualizar textura solo si cambio
+    -- Actualizar textura solo si cambio (swap instantaneo, sin fade)
     if spellID ~= currentSpellID then
         currentSpellID = spellID
         local spellTexture = C_Spell.GetSpellTexture(spellID)
@@ -450,6 +456,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             spellText:Hide()
         end
         detectionMode = AoeDKDB.detectionMode or "real"
+        -- epidemicThreshold se lee directamente desde AoeDKDB en UpdateIcon
         RefreshClassSpec()
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "UNIT_AURA" and arg1 == "player" then
@@ -462,16 +469,25 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             UpdateIcon()
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
-        -- Salir de combate: ocultar (salvo si forceShow o unlock)
+        -- Salir de combate: fade-out y ocultar (salvo si forceShow o unlock)
         if not forceShow and not isUnlocked then
             StopTicker()
-            frame:Hide()
             currentSpellID = nil
+            local alpha = AoeDKDB.iconAlpha or ICON_ALPHA
+            UIFrameFadeOut(frame, 0.4, alpha, 0)
+            C_Timer.After(0.4, function()
+                if not forceShow and not isUnlocked and not UnitAffectingCombat("player") then
+                    frame:Hide()
+                    frame:SetAlpha(alpha)  -- restaurar alpha para la proxima vez
+                end
+            end)
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
-        -- Entrar en combate: iniciar ticker
+        -- Entrar en combate: fade-in y arrancar ticker
         StartTicker()
         UpdateIcon()
+        local alpha = AoeDKDB.iconAlpha or ICON_ALPHA
+        UIFrameFadeIn(frame, 0.3, 0, alpha)
     else
         -- Cubre PLAYER_SPECIALIZATION_CHANGED y PLAYER_ENTERING_WORLD
         RefreshClassSpec()
@@ -485,7 +501,7 @@ frame:Hide()
 -- Panel de opciones
 ---------------------------------------------------------------------------
 local optionsPanel = CreateFrame("Frame", "AoeDKOptionsPanel", UIParent, "BackdropTemplate")
-optionsPanel:SetSize(240, 310)
+optionsPanel:SetSize(240, 360)
 optionsPanel:SetPoint("CENTER")
 optionsPanel:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -623,10 +639,45 @@ textBtn:SetScript("OnClick", function()
     UpdateTextBtnLabel()
 end)
 
+-- Seccion umbral de Epidemia
+local thresholdLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+thresholdLabel:SetPoint("TOP", textBtn, "BOTTOM", 0, -14)
+thresholdLabel:SetText(L.EPIDEMIC_THRESHOLD)
+
+local thresholdValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+thresholdValue:SetPoint("TOP", thresholdLabel, "BOTTOM", 0, -6)
+
+local function UpdateThresholdValue()
+    thresholdValue:SetText(tostring(AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) .. "+ enemies")
+end
+UpdateThresholdValue()
+
+local thresholdDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+thresholdDown:SetSize(36, 24)
+thresholdDown:SetPoint("RIGHT", thresholdValue, "LEFT", -10, 0)
+thresholdDown:SetText("-")
+thresholdDown:SetScript("OnClick", function()
+    local t = math.max(2, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) - 1)
+    AoeDKDB.epidemicThreshold = t
+    currentSpellID = nil  -- fuerza re-evaluacion
+    UpdateThresholdValue()
+end)
+
+local thresholdUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+thresholdUp:SetSize(36, 24)
+thresholdUp:SetPoint("LEFT", thresholdValue, "RIGHT", 10, 0)
+thresholdUp:SetText("+")
+thresholdUp:SetScript("OnClick", function()
+    local t = math.min(6, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) + 1)
+    AoeDKDB.epidemicThreshold = t
+    currentSpellID = nil  -- fuerza re-evaluacion
+    UpdateThresholdValue()
+end)
+
 -- Boton reset posicion
 local resetBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 resetBtn:SetSize(200, 26)
-resetBtn:SetPoint("TOP", textBtn, "BOTTOM", 0, -10)
+resetBtn:SetPoint("TOP", thresholdValue, "BOTTOM", 0, -10)
 resetBtn:SetText(L.RESET_POSITION)
 resetBtn:SetScript("OnClick", function()
     frame:ClearAllPoints()
@@ -646,6 +697,7 @@ local function ToggleOptionsPanel()
         UpdateSizeValue()
         UpdateAlphaValue()
         UpdateTextBtnLabel()
+        UpdateThresholdValue()
         optionsPanel:Show()
     end
 end
