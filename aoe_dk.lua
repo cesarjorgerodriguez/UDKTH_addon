@@ -137,6 +137,20 @@ spellText:SetTextColor(1, 1, 1)
 -- Estado de unlock (ancla visible para localizar y mover)
 local isUnlocked = false
 
+-- Declaradas antes de ShowAnchor/HideAnchor para que ambas funciones capturen los locales correctos
+local currentSpellID = nil
+local forceShow = false       -- para /aoedk test
+local detectionMode = "real"  -- "real" o "dummy"
+
+-- Cache de clase/spec: no cambian durante combate, se actualizan via PLAYER_SPECIALIZATION_CHANGED
+local cachedClassID   = nil
+local cachedSpecIndex = nil
+local function RefreshClassSpec()
+    local _, _, classID = UnitClass("player")
+    cachedClassID   = classID
+    cachedSpecIndex = GetSpecialization()
+end
+
 local function ShowAnchor()
     isUnlocked = true
     icon:SetTexture("Interface\\Icons\\Spell_DeathKnight_Explode_Ghoul")
@@ -193,13 +207,6 @@ local function ApplyIconAlpha(alpha)
 end
 
 ---------------------------------------------------------------------------
--- Modos: "real" (en combate, con threat/combat check) o "dummy" (todo nameplate enemigo)
----------------------------------------------------------------------------
-local currentSpellID = nil
-local forceShow = false  -- para /aoedk test
-local detectionMode = "real" -- "real" o "dummy"
-
----------------------------------------------------------------------------
 -- Sistema de deteccion de enemigos
 -- 1) Nameplates via eventos NAME_PLATE_UNIT_ADDED/REMOVED
 -- 2) Target actual siempre se cuenta si es valido
@@ -238,13 +245,14 @@ end
 local function GetEnemyCount()
     local count = 0
     local targetCounted = false
+    local hasTarget = UnitExists("target")  -- cacheado: evita 3 llamadas separadas
 
     -- Paso 1: Nameplates activas (fuente principal, via eventos)
     for unit in pairs(npActive) do
         if IsValidEnemy(unit) then
             if detectionMode == "dummy" or forceShow then
                 count = count + 1
-                if not targetCounted and UnitExists("target") and UnitIsUnit(unit, "target") then
+                if not targetCounted and hasTarget and UnitIsUnit(unit, "target") then
                     targetCounted = true
                 end
             else
@@ -253,7 +261,7 @@ local function GetEnemyCount()
                 local threat = UnitThreatSituation("player", unit)
                 if inCbt or (threat ~= nil) then
                     count = count + 1
-                    if not targetCounted and UnitExists("target") and UnitIsUnit(unit, "target") then
+                    if not targetCounted and hasTarget and UnitIsUnit(unit, "target") then
                         targetCounted = true
                     end
                 end
@@ -262,7 +270,7 @@ local function GetEnemyCount()
     end
 
     -- Paso 2: Siempre contar target actual si es valido y no fue contado
-    if not targetCounted and UnitExists("target") and IsValidEnemy("target") then
+    if not targetCounted and hasTarget and IsValidEnemy("target") then
         if detectionMode == "dummy" or forceShow then
             count = count + 1
         else
@@ -291,15 +299,13 @@ end
 
 local function UpdateIcon()
     -- Solo para DK Profano (Unholy = spec index 3, class ID 6)
+    -- Usa valores cacheados: UnitClass/GetSpecialization no cambian durante combate
     if not forceShow then
-        local _, _, classID = UnitClass("player")
-        if classID ~= 6 then
+        if cachedClassID ~= 6 then
             frame:Hide()
             return
         end
-
-        local specIndex = GetSpecialization()
-        if not specIndex or specIndex ~= 3 then
+        if not cachedSpecIndex or cachedSpecIndex ~= 3 then
             frame:Hide()
             return
         end
@@ -409,7 +415,7 @@ frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("UNIT_AURA")
+frame:RegisterUnitEvent("UNIT_AURA", "player")  -- solo auras del jugador, no de todas las unidades
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
@@ -430,6 +436,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             countText:Hide()
             spellText:Hide()
         end
+        RefreshClassSpec()
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "UNIT_AURA" and arg1 == "player" then
         if UnitAffectingCombat("player") or forceShow then
@@ -452,6 +459,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         StartTicker()
         UpdateIcon()
     else
+        -- Cubre PLAYER_SPECIALIZATION_CHANGED y PLAYER_ENTERING_WORLD
+        RefreshClassSpec()
         UpdateIcon()
     end
 end)
