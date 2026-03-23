@@ -23,6 +23,14 @@ optionsPanel:RegisterForDrag("LeftButton")
 optionsPanel:SetScript("OnDragStart", optionsPanel.StartMoving)
 optionsPanel:SetScript("OnDragStop", optionsPanel.StopMovingOrSizing)
 optionsPanel:Hide()
+tinsert(UISpecialFrames, "AoeDKOptionsPanel")
+
+-- Si el panel se cierra mientras el icono esta en modo mover, bloquear automaticamente (guarda posicion)
+optionsPanel:SetScript("OnHide", function()
+    if ns.IsUnlocked() then
+        ns.HideAnchor()
+    end
+end)
 
 local panelTitle = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 panelTitle:SetPoint("TOP", 0, -12)

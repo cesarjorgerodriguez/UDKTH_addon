@@ -465,12 +465,12 @@ ns.frame     = frame
 ns.icon      = icon
 ns.countText = countText
 ns.spellText = spellText
-ns.ShowAnchor     = ShowAnchor
-ns.HideAnchor     = HideAnchor
-ns.ApplyIconSize   = ApplyIconSize
-ns.ApplyIconAlpha  = ApplyIconAlpha
-ns.ApplyBorderSize = ApplyBorderSize
-ns.IsUnlocked     = function() return isUnlocked end
+ns.ShowAnchor       = ShowAnchor
+ns.HideAnchor       = HideAnchor
+ns.ApplyIconSize    = ApplyIconSize
+ns.ApplyIconAlpha   = ApplyIconAlpha
+ns.ApplyBorderSize  = ApplyBorderSize
+ns.IsUnlocked       = function() return isUnlocked end
 ns.ResetCurrentSpell = function() currentSpellID = nil end
 
 ---------------------------------------------------------------------------
