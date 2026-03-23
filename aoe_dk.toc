@@ -7,4 +7,7 @@
 ## SavedVariables: AoeDKDB
 ## IconTexture: Interface\Icons\Spell_DeathKnight_Explode_Ghoul
 
+Locales.lua
+Config.lua
 aoe_dk.lua
+Options.lua

@@ -1,104 +1,24 @@
--- AoE DK: Sugiere Espiral de la Muerte (1-3 targets) o Epidemia (4+ targets)
+-- AoE DK: Core logic
 local addonName, ns = ...
 
 ---------------------------------------------------------------------------
--- Localization
+-- Import from namespace (populated by Locales.lua & Config.lua)
 ---------------------------------------------------------------------------
-local L = {}
-local locale = GetLocale()
+local L = ns.L
 
--- English (default)
-L.DRAG_TO_MOVE = "Drag to move"
-L.ENEMY = "enemy"
-L.ENEMIES = "enemies"
-L.OPTIONS_TITLE = "|cff00ccffAoE DK|r Options"
-L.LOCK_ICON = "Lock icon"
-L.UNLOCK_ICON = "Unlock icon"
-L.MOVE_ICON = "Move icon"
-L.ICON_SIZE = "Icon size"
-L.ICON_TRANSPARENCY = "Icon transparency"
-L.HIDE_TEXT = "Hide text"
-L.SHOW_TEXT = "Show text"
-L.RESET_POSITION = "Reset position"
-L.MSG_LOCKED = "Icon locked."
-L.MSG_UNLOCKED = "Icon unlocked. Drag to move."
-L.MSG_POSITION_RESET = "Position reset."
-L.MSG_TEST_ON = "TEST mode enabled (shows without checks)."
-L.MSG_TEST_OFF = "TEST mode disabled."
-L.MSG_MODE_DUMMY = "DUMMY mode: counts all enemies with visible nameplate."
-L.MSG_MODE_REAL = "REAL mode: counts only enemies in combat/with threat."
-L.MSG_MODE_CURRENT = "Current mode:"
-L.MSG_MODE_USAGE = "Use: /aoedk mode dummy  or  /aoedk mode real"
-L.DEBUG_CLASS = "Class ID"
-L.DEBUG_SPEC = "Spec Index"
-L.DEBUG_COMBAT = "In combat"
-L.DEBUG_ARMY = "Army active"
-L.DEBUG_ENEMIES = "Enemies detected"
-L.DEBUG_MODE = "Mode"
-L.DEBUG_VISIBLE = "Frame visible"
-L.BUFFS_ACTIVE = "Active BUFFS:"
-L.DEBUFFS_ACTIVE = "Active DEBUFFS:"
-L.EPIDEMIC_THRESHOLD = "Epidemic threshold"
-L.EPIDEMIC_THRESHOLD_FK = "Threshold (Forbidden Knowledge)"
-
--- Spanish
-if locale == "esES" or locale == "esMX" then
-    L.DRAG_TO_MOVE = "Arrastra para mover"
-    L.ENEMY = "enemigo"
-    L.ENEMIES = "enemigos"
-    L.OPTIONS_TITLE = "|cff00ccffAoE DK|r Opciones"
-    L.LOCK_ICON = "Bloquear icono"
-    L.UNLOCK_ICON = "Desbloquear icono"
-    L.MOVE_ICON = "Mover icono"
-    L.ICON_SIZE = "Tamaño del icono"
-    L.ICON_TRANSPARENCY = "Transparencia del icono"
-    L.HIDE_TEXT = "Ocultar texto"
-    L.SHOW_TEXT = "Mostrar texto"
-    L.RESET_POSITION = "Reiniciar posicion"
-    L.MSG_LOCKED = "Icono bloqueado."
-    L.MSG_UNLOCKED = "Icono desbloqueado. Arrastra para mover."
-    L.MSG_POSITION_RESET = "Posicion reiniciada."
-    L.MSG_TEST_ON = "Modo TEST activado (se muestra sin checks)."
-    L.MSG_TEST_OFF = "Modo TEST desactivado."
-    L.MSG_MODE_DUMMY = "Modo DUMMY: cuenta todos los enemigos con nameplate visible."
-    L.MSG_MODE_REAL = "Modo REAL: cuenta solo enemigos en combate/con threat."
-    L.MSG_MODE_CURRENT = "Modo actual:"
-    L.MSG_MODE_USAGE = "Usa: /aoedk mode dummy  o  /aoedk mode real"
-    L.DEBUG_CLASS = "Class ID"
-    L.DEBUG_SPEC = "Spec Index"
-    L.DEBUG_COMBAT = "En combate"
-    L.DEBUG_ARMY = "Ejercito activo"
-    L.DEBUG_ENEMIES = "Enemigos detectados"
-    L.DEBUG_MODE = "Modo"
-    L.DEBUG_VISIBLE = "Frame visible"
-    L.BUFFS_ACTIVE = "BUFFS activos:"
-    L.DEBUFFS_ACTIVE = "DEBUFFS activos:"
-    L.EPIDEMIC_THRESHOLD = "Umbral de Epidemia"
-    L.EPIDEMIC_THRESHOLD_FK = "Umbral (Forbidden Knowledge)"
-end
-
--- Spell IDs
-local DEATH_COIL_ID   = 47541       -- Espiral de la Muerte
-local EPIDEMIC_ID     = 207317      -- Epidemia
-local NECROTIC_COIL_ID = 434179     -- Necrotic Coil (mejorado con Ejercito)
-local GRAVEYARD_ID    = 458714      -- Graveyard (mejorado con Ejercito)
-
--- Army of the Dead - ID del buff
-local ARMY_BUFF_ID = 1242223
-
--- Forbidden Knowledge buff (Conocimiento prohibido - Death Coil → Necrotic Coil, Epidemic → Graveyard)
-local FORBIDDEN_KNOWLEDGE_ID = 1242223
-
--- Hero talent detection
-local RIDER_CHECK_ID   = 444929   -- A Feast of Souls (Rider of the Apocalypse)
-local SANLAYN_CHECK_ID = 434153   -- Gift of the San'layn (San'layn)
-
--- Config
-local UPDATE_INTERVAL = 0.15      -- Segundos entre actualizaciones
-local ICON_SIZE = 64              -- Tamaño del icono en pixeles
-local ICON_ALPHA = 1.0            -- Transparencia del icono (0.1 a 1.0)
-local EPIDEMIC_THRESHOLD = 3      -- Base: Epidemia sin Forbidden Knowledge
-local EPIDEMIC_THRESHOLD_FK = 6   -- Con Forbidden Knowledge activo
+local DEATH_COIL_ID          = ns.DEATH_COIL_ID
+local EPIDEMIC_ID            = ns.EPIDEMIC_ID
+local NECROTIC_COIL_ID       = ns.NECROTIC_COIL_ID
+local GRAVEYARD_ID           = ns.GRAVEYARD_ID
+local ARMY_BUFF_ID           = ns.ARMY_BUFF_ID
+local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
+local RIDER_CHECK_ID         = ns.RIDER_CHECK_ID
+local SANLAYN_CHECK_ID       = ns.SANLAYN_CHECK_ID
+local UPDATE_INTERVAL        = ns.UPDATE_INTERVAL
+local ICON_SIZE              = ns.ICON_SIZE
+local ICON_ALPHA             = ns.ICON_ALPHA
+local EPIDEMIC_THRESHOLD     = ns.EPIDEMIC_THRESHOLD
+local EPIDEMIC_THRESHOLD_FK  = ns.EPIDEMIC_THRESHOLD_FK
 
 ---------------------------------------------------------------------------
 -- Frame principal
@@ -206,13 +126,13 @@ end
 
 local function HideAnchor()
     isUnlocked = false
-    icon:SetAlpha(AoeDKDB.iconAlpha or ICON_ALPHA)
+    icon:SetAlpha(AoeDKDB.iconAlpha)
     countText:SetText("")
     spellText:SetText("")
     frame:SetBackdropColor(0, 0, 0, 0)
     frame:SetBackdropBorderColor(0, 0, 0, 1)
     currentSpellID = nil
-    if AoeDKDB.showText == false then
+    if not AoeDKDB.showText then
         countText:Hide()
         spellText:Hide()
     end
@@ -372,9 +292,9 @@ local function UpdateIcon()
     local fkActive = IsForbiddenKnowledgeActive()
     local threshold
     if fkActive then
-        threshold = AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK
+        threshold = AoeDKDB.epidemicThresholdFK
     else
-        threshold = AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD
+        threshold = AoeDKDB.epidemicThreshold
     end
 
     if armyUp then
@@ -411,7 +331,7 @@ local function UpdateIcon()
         end
     end
 
-    if not AoeDKDB or AoeDKDB.showText ~= false then
+    if AoeDKDB.showText then
         countText:SetText(enemyCount .. (enemyCount == 1 and (" " .. L.ENEMY) or (" " .. L.ENEMIES)))
         countText:Show()
         spellText:Show()
@@ -467,24 +387,23 @@ frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
-        -- Restaurar posicion guardada
+        -- Merge defaults: garantiza que todos los campos existen en AoeDKDB
         AoeDKDB = AoeDKDB or {}
+        for k, v in pairs(ns.defaults) do
+            if AoeDKDB[k] == nil then AoeDKDB[k] = v end
+        end
+        -- Restaurar posicion guardada
         if AoeDKDB.point then
             frame:ClearAllPoints()
             frame:SetPoint(AoeDKDB.point, UIParent, AoeDKDB.relPoint, AoeDKDB.x, AoeDKDB.y)
         end
-        if AoeDKDB.iconSize then
-            frame:SetSize(AoeDKDB.iconSize, AoeDKDB.iconSize)
-        end
-        if AoeDKDB.iconAlpha then
-            icon:SetAlpha(AoeDKDB.iconAlpha)
-        end
-        if AoeDKDB.showText == false then
+        frame:SetSize(AoeDKDB.iconSize, AoeDKDB.iconSize)
+        icon:SetAlpha(AoeDKDB.iconAlpha)
+        if not AoeDKDB.showText then
             countText:Hide()
             spellText:Hide()
         end
-        detectionMode = AoeDKDB.detectionMode or "real"
-        -- epidemicThreshold se lee directamente desde AoeDKDB en UpdateIcon
+        detectionMode = AoeDKDB.detectionMode
         RefreshClassSpec()
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "UNIT_AURA" and arg1 == "player" then
@@ -501,7 +420,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         if not forceShow and not isUnlocked then
             StopTicker()
             currentSpellID = nil
-            local alpha = AoeDKDB.iconAlpha or ICON_ALPHA
+            local alpha = AoeDKDB.iconAlpha
             UIFrameFadeOut(frame, 0.4, alpha, 0)
             C_Timer.After(0.4, function()
                 if not forceShow and not isUnlocked and not UnitAffectingCombat("player") then
@@ -514,7 +433,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         -- Entrar en combate: fade-in y arrancar ticker
         StartTicker()
         UpdateIcon()
-        local alpha = AoeDKDB.iconAlpha or ICON_ALPHA
+        local alpha = AoeDKDB.iconAlpha
         UIFrameFadeIn(frame, 0.3, 0, alpha)
     else
         -- Cubre PLAYER_SPECIALIZATION_CHANGED y PLAYER_ENTERING_WORLD
@@ -526,245 +445,18 @@ end)
 frame:Hide()
 
 ---------------------------------------------------------------------------
--- Panel de opciones
+-- Expose to namespace (used by Options.lua)
 ---------------------------------------------------------------------------
-local optionsPanel = CreateFrame("Frame", "AoeDKOptionsPanel", UIParent, "BackdropTemplate")
-optionsPanel:SetSize(240, 420)
-optionsPanel:SetPoint("CENTER")
-optionsPanel:SetBackdrop({
-    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
-})
-optionsPanel:SetBackdropColor(0.05, 0.05, 0.1, 0.95)
-optionsPanel:SetBackdropBorderColor(0, 0.6, 0.8, 1)
-optionsPanel:SetFrameStrata("DIALOG")
-optionsPanel:SetMovable(true)
-optionsPanel:EnableMouse(true)
-optionsPanel:RegisterForDrag("LeftButton")
-optionsPanel:SetScript("OnDragStart", optionsPanel.StartMoving)
-optionsPanel:SetScript("OnDragStop", optionsPanel.StopMovingOrSizing)
-optionsPanel:Hide()
-
-local panelTitle = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-panelTitle:SetPoint("TOP", 0, -12)
-panelTitle:SetText(L.OPTIONS_TITLE)
-
-local closeBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelCloseButton")
-closeBtn:SetPoint("TOPRIGHT", -2, -2)
-
--- Boton mover icono
-local moveBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-moveBtn:SetSize(200, 26)
-moveBtn:SetPoint("TOP", 0, -42)
-
-local function UpdateMoveBtnText()
-    moveBtn:SetText(isUnlocked and L.LOCK_ICON or L.MOVE_ICON)
-end
-UpdateMoveBtnText()
-
-moveBtn:SetScript("OnClick", function()
-    if isUnlocked then
-        HideAnchor()
-    else
-        ShowAnchor()
-    end
-    UpdateMoveBtnText()
-end)
-
--- Seccion tamano
-local sizeLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-sizeLabel:SetPoint("TOP", moveBtn, "BOTTOM", 0, -14)
-sizeLabel:SetText(L.ICON_SIZE)
-
-local sizeValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-sizeValue:SetPoint("TOP", sizeLabel, "BOTTOM", 0, -6)
-
-local function UpdateSizeValue()
-    AoeDKDB = AoeDKDB or {}
-    sizeValue:SetText(tostring(AoeDKDB.iconSize or ICON_SIZE) .. " px")
-end
-UpdateSizeValue()
-
-local sizeDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-sizeDown:SetSize(36, 24)
-sizeDown:SetPoint("RIGHT", sizeValue, "LEFT", -10, 0)
-sizeDown:SetText("-")
-sizeDown:SetScript("OnClick", function()
-    local s = math.max(32, (AoeDKDB.iconSize or ICON_SIZE) - 8)
-    ApplyIconSize(s)
-    UpdateSizeValue()
-end)
-
-local sizeUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-sizeUp:SetSize(36, 24)
-sizeUp:SetPoint("LEFT", sizeValue, "RIGHT", 10, 0)
-sizeUp:SetText("+")
-sizeUp:SetScript("OnClick", function()
-    local s = math.min(128, (AoeDKDB.iconSize or ICON_SIZE) + 8)
-    ApplyIconSize(s)
-    UpdateSizeValue()
-end)
-
--- Seccion transparencia
-local alphaLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-alphaLabel:SetPoint("TOP", sizeValue, "BOTTOM", 0, -14)
-alphaLabel:SetText(L.ICON_TRANSPARENCY)
-
-local alphaValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-alphaValue:SetPoint("TOP", alphaLabel, "BOTTOM", 0, -6)
-
-local function UpdateAlphaValue()
-    AoeDKDB = AoeDKDB or {}
-    local a = AoeDKDB.iconAlpha or ICON_ALPHA
-    alphaValue:SetText(tostring(math.floor(a * 100 + 0.5)) .. "%%")
-end
-UpdateAlphaValue()
-
-local alphaDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-alphaDown:SetSize(36, 24)
-alphaDown:SetPoint("RIGHT", alphaValue, "LEFT", -10, 0)
-alphaDown:SetText("-")
-alphaDown:SetScript("OnClick", function()
-    local a = math.max(0.1, (AoeDKDB.iconAlpha or ICON_ALPHA) - 0.1)
-    ApplyIconAlpha(a)
-    UpdateAlphaValue()
-end)
-
-local alphaUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-alphaUp:SetSize(36, 24)
-alphaUp:SetPoint("LEFT", alphaValue, "RIGHT", 10, 0)
-alphaUp:SetText("+")
-alphaUp:SetScript("OnClick", function()
-    local a = math.min(1.0, (AoeDKDB.iconAlpha or ICON_ALPHA) + 0.1)
-    ApplyIconAlpha(a)
-    UpdateAlphaValue()
-end)
-
--- Boton mostrar/ocultar texto
-local textBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-textBtn:SetSize(200, 26)
-textBtn:SetPoint("TOP", alphaValue, "BOTTOM", 0, -14)
-
-local function UpdateTextBtnLabel()
-    AoeDKDB = AoeDKDB or {}
-    local show = AoeDKDB.showText ~= false
-    textBtn:SetText(show and L.HIDE_TEXT or L.SHOW_TEXT)
-end
-UpdateTextBtnLabel()
-
-textBtn:SetScript("OnClick", function()
-    local show = AoeDKDB.showText ~= false
-    AoeDKDB.showText = not show
-    if AoeDKDB.showText then
-        countText:Show()
-        spellText:Show()
-    else
-        countText:Hide()
-        spellText:Hide()
-    end
-    UpdateTextBtnLabel()
-end)
-
--- Seccion umbral de Epidemia (sin Forbidden Knowledge)
-local thresholdLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-thresholdLabel:SetPoint("TOP", textBtn, "BOTTOM", 0, -14)
-thresholdLabel:SetText(L.EPIDEMIC_THRESHOLD)
-
-local thresholdValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-thresholdValue:SetPoint("TOP", thresholdLabel, "BOTTOM", 0, -6)
-
-local function UpdateThresholdValue()
-    thresholdValue:SetText(tostring(AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) .. "+ " .. L.ENEMIES)
-end
-UpdateThresholdValue()
-
-local thresholdDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-thresholdDown:SetSize(36, 24)
-thresholdDown:SetPoint("RIGHT", thresholdValue, "LEFT", -10, 0)
-thresholdDown:SetText("-")
-thresholdDown:SetScript("OnClick", function()
-    local t = math.max(2, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) - 1)
-    AoeDKDB.epidemicThreshold = t
-    currentSpellID = nil
-    UpdateThresholdValue()
-end)
-
-local thresholdUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-thresholdUp:SetSize(36, 24)
-thresholdUp:SetPoint("LEFT", thresholdValue, "RIGHT", 10, 0)
-thresholdUp:SetText("+")
-thresholdUp:SetScript("OnClick", function()
-    local t = math.min(10, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) + 1)
-    AoeDKDB.epidemicThreshold = t
-    currentSpellID = nil
-    UpdateThresholdValue()
-end)
-
--- Seccion umbral con Forbidden Knowledge
-local thresholdFKLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-thresholdFKLabel:SetPoint("TOP", thresholdValue, "BOTTOM", 0, -14)
-thresholdFKLabel:SetText(L.EPIDEMIC_THRESHOLD_FK)
-
-local thresholdFKValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-thresholdFKValue:SetPoint("TOP", thresholdFKLabel, "BOTTOM", 0, -6)
-
-local function UpdateThresholdFKValue()
-    thresholdFKValue:SetText(tostring(AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) .. "+ " .. L.ENEMIES)
-end
-UpdateThresholdFKValue()
-
-local thresholdFKDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-thresholdFKDown:SetSize(36, 24)
-thresholdFKDown:SetPoint("RIGHT", thresholdFKValue, "LEFT", -10, 0)
-thresholdFKDown:SetText("-")
-thresholdFKDown:SetScript("OnClick", function()
-    local t = math.max(2, (AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) - 1)
-    AoeDKDB.epidemicThresholdFK = t
-    currentSpellID = nil
-    UpdateThresholdFKValue()
-end)
-
-local thresholdFKUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-thresholdFKUp:SetSize(36, 24)
-thresholdFKUp:SetPoint("LEFT", thresholdFKValue, "RIGHT", 10, 0)
-thresholdFKUp:SetText("+")
-thresholdFKUp:SetScript("OnClick", function()
-    local t = math.min(10, (AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) + 1)
-    AoeDKDB.epidemicThresholdFK = t
-    currentSpellID = nil
-    UpdateThresholdFKValue()
-end)
-
--- Boton reset posicion
-local resetBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-resetBtn:SetSize(200, 26)
-resetBtn:SetPoint("TOP", thresholdFKValue, "BOTTOM", 0, -10)
-resetBtn:SetText(L.RESET_POSITION)
-resetBtn:SetScript("OnClick", function()
-    frame:ClearAllPoints()
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    AoeDKDB.point    = nil
-    AoeDKDB.relPoint = nil
-    AoeDKDB.x        = nil
-    AoeDKDB.y        = nil
-    print("|cff00ccff[AoE DK]|r " .. L.MSG_POSITION_RESET)
-end)
-
-local function ToggleOptionsPanel()
-    if optionsPanel:IsShown() then
-        optionsPanel:Hide()
-    else
-        UpdateMoveBtnText()
-        UpdateSizeValue()
-        UpdateAlphaValue()
-        UpdateTextBtnLabel()
-        UpdateThresholdValue()
-        UpdateThresholdFKValue()
-        optionsPanel:Show()
-    end
-end
+ns.frame     = frame
+ns.icon      = icon
+ns.countText = countText
+ns.spellText = spellText
+ns.ShowAnchor     = ShowAnchor
+ns.HideAnchor     = HideAnchor
+ns.ApplyIconSize  = ApplyIconSize
+ns.ApplyIconAlpha = ApplyIconAlpha
+ns.IsUnlocked     = function() return isUnlocked end
+ns.ResetCurrentSpell = function() currentSpellID = nil end
 
 ---------------------------------------------------------------------------
 -- Slash commands
@@ -854,6 +546,6 @@ SlashCmdList["AOEDK"] = function(msg)
             print("  " .. L.MSG_MODE_USAGE)
         end
     else
-        ToggleOptionsPanel()
+        ns.ToggleOptionsPanel()
     end
 end
