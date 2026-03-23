@@ -10,15 +10,12 @@ local DEATH_COIL_ID          = ns.DEATH_COIL_ID
 local EPIDEMIC_ID            = ns.EPIDEMIC_ID
 local NECROTIC_COIL_ID       = ns.NECROTIC_COIL_ID
 local GRAVEYARD_ID           = ns.GRAVEYARD_ID
-local ARMY_BUFF_ID           = ns.ARMY_BUFF_ID
 local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
 local RIDER_CHECK_ID         = ns.RIDER_CHECK_ID
 local SANLAYN_CHECK_ID       = ns.SANLAYN_CHECK_ID
 local UPDATE_INTERVAL        = ns.UPDATE_INTERVAL
 local ICON_SIZE              = ns.ICON_SIZE
 local ICON_ALPHA             = ns.ICON_ALPHA
-local EPIDEMIC_THRESHOLD     = ns.EPIDEMIC_THRESHOLD
-local EPIDEMIC_THRESHOLD_FK  = ns.EPIDEMIC_THRESHOLD_FK
 
 ---------------------------------------------------------------------------
 -- Frame principal
@@ -73,6 +70,7 @@ spellText:SetTextColor(1, 1, 1)
 -- Declaradas antes de ShowAnchor/HideAnchor para que ambas funciones capturen los locales correctos
 local currentSpellID = nil
 local forceShow = false       -- para /aoedk test
+local fadeOutPending = false  -- guard contra race condition fade-out/fade-in
 local detectionMode = "real"  -- "real" o "dummy"
 
 -- Cache de clase/spec: no cambian durante combate, se actualizan via PLAYER_SPECIALIZATION_CHANGED
@@ -160,6 +158,22 @@ local function ApplyIconAlpha(alpha)
     end
 end
 
+local function ApplyBorderSize(size)
+    size = math.max(1, math.min(8, size))
+    AoeDKDB.borderSize = size
+    frame:SetBackdrop({
+        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        tile = true, tileSize = 16, edgeSize = size,
+        insets = { left = size, right = size, top = size, bottom = size },
+    })
+    frame:SetBackdropColor(0, 0, 0, 0)
+    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    -- Ajustar el icono para respetar el nuevo grosor del borde
+    icon:SetPoint("TOPLEFT", size, -size)
+    icon:SetPoint("BOTTOMRIGHT", -size, size)
+end
+
 ---------------------------------------------------------------------------
 -- Sistema de deteccion de enemigos
 -- 1) Nameplates via eventos NAME_PLATE_UNIT_ADDED/REMOVED
@@ -240,13 +254,10 @@ local function GetEnemyCount()
 end
 
 ---------------------------------------------------------------------------
--- Detectar si Ejercito de los Muertos esta activo
+-- Detectar si Forbidden Knowledge (Army of the Dead) esta activo.
+-- El buff 1242223 indica que el Ejercito esta en juego; activa las
+-- habilidades mejoradas y el umbral FK.
 ---------------------------------------------------------------------------
-local function IsArmyActive()
-    local aura = C_UnitAuras.GetPlayerAuraBySpellID(ARMY_BUFF_ID)
-    return aura ~= nil
-end
-
 local function IsForbiddenKnowledgeActive()
     return C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID) ~= nil
 end
@@ -287,8 +298,6 @@ local function UpdateIcon()
 
     -- Determinar hechizo sugerido
     local spellID
-    local armyUp = IsArmyActive()
-
     local fkActive = IsForbiddenKnowledgeActive()
     local threshold
     if fkActive then
@@ -297,9 +306,9 @@ local function UpdateIcon()
         threshold = AoeDKDB.epidemicThreshold
     end
 
-    if armyUp then
-        -- Con Ejercito de los Muertos: habilidades mejoradas
-        -- Los breakpoints de Army escalan con el umbral configurado
+    if fkActive then
+        -- Con Forbidden Knowledge (Army activo): cuatro niveles de hechizos.
+        -- DC < (threshold-1) <= Epidemic < threshold <= Necrotic <= (threshold+1) <= Graveyard
         if enemyCount >= (threshold + 1) then
             spellID = GRAVEYARD_ID
         elseif enemyCount >= threshold then
@@ -310,7 +319,7 @@ local function UpdateIcon()
             spellID = DEATH_COIL_ID
         end
     else
-        -- Sin Ejercito: usar umbral configurable
+        -- Sin Forbidden Knowledge: Death Coil o Epidemic segun umbral base
         if enemyCount >= threshold then
             spellID = EPIDEMIC_ID
         else
@@ -399,6 +408,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         end
         frame:SetSize(AoeDKDB.iconSize, AoeDKDB.iconSize)
         icon:SetAlpha(AoeDKDB.iconAlpha)
+        ApplyBorderSize(AoeDKDB.borderSize)
         if not AoeDKDB.showText then
             countText:Hide()
             spellText:Hide()
@@ -421,16 +431,20 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             StopTicker()
             currentSpellID = nil
             local alpha = AoeDKDB.iconAlpha
+            fadeOutPending = true
             UIFrameFadeOut(frame, 0.4, alpha, 0)
             C_Timer.After(0.4, function()
-                if not forceShow and not isUnlocked and not UnitAffectingCombat("player") then
+                if not fadeOutPending then return end
+                fadeOutPending = false
+                if not forceShow and not isUnlocked then
                     frame:Hide()
                     frame:SetAlpha(alpha)  -- restaurar alpha para la proxima vez
                 end
             end)
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
-        -- Entrar en combate: fade-in y arrancar ticker
+        -- Entrar en combate: cancelar fade-out pendiente, fade-in y arrancar ticker
+        fadeOutPending = false
         StartTicker()
         UpdateIcon()
         local alpha = AoeDKDB.iconAlpha
@@ -453,8 +467,9 @@ ns.countText = countText
 ns.spellText = spellText
 ns.ShowAnchor     = ShowAnchor
 ns.HideAnchor     = HideAnchor
-ns.ApplyIconSize  = ApplyIconSize
-ns.ApplyIconAlpha = ApplyIconAlpha
+ns.ApplyIconSize   = ApplyIconSize
+ns.ApplyIconAlpha  = ApplyIconAlpha
+ns.ApplyBorderSize = ApplyBorderSize
 ns.IsUnlocked     = function() return isUnlocked end
 ns.ResetCurrentSpell = function() currentSpellID = nil end
 
@@ -499,13 +514,12 @@ SlashCmdList["AOEDK"] = function(msg)
         local specIndex = GetSpecialization() or 0
         local inCombat = UnitAffectingCombat("player")
         local enemyCount = GetEnemyCount()
-        local armyUp = IsArmyActive()
+        local fkActive = IsForbiddenKnowledgeActive()
         print("|cff00ccff[AoE DK] DEBUG:|r")
         print("  " .. L.DEBUG_CLASS .. ": " .. tostring(classID) .. " (necesita 6=DK)")
         print("  " .. L.DEBUG_SPEC .. ": " .. tostring(specIndex) .. " (necesita 3=Unholy)")
         print("  " .. L.DEBUG_COMBAT .. ": " .. tostring(inCombat))
-        print("  " .. L.DEBUG_ARMY .. ": " .. tostring(armyUp))
-        print("  Forbidden Knowledge: " .. tostring(IsForbiddenKnowledgeActive()))
+        print("  " .. L.DEBUG_ARMY .. " / Forbidden Knowledge: " .. tostring(fkActive))
         print("  Hero talent: " .. (cachedHeroTalent or "unknown"))
         print("  " .. L.DEBUG_ENEMIES .. ": " .. enemyCount)
         print("  " .. L.DEBUG_MODE .. ": " .. detectionMode)

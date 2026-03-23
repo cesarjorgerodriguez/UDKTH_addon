@@ -10,9 +10,11 @@ ns.GRAVEYARD_ID        = 458714      -- Graveyard (mejorado con Ejercito)
 
 ---------------------------------------------------------------------------
 -- Buff IDs
+-- FORBIDDEN_KNOWLEDGE_ID (1242223): buff presente cuando el Ejercito de los
+-- Muertos esta activo con el talento Forbidden Knowledge. Es el unico buff
+-- necesario: controla tanto la deteccion de Army como el umbral FK.
 ---------------------------------------------------------------------------
-ns.ARMY_BUFF_ID              = 1242223
-ns.FORBIDDEN_KNOWLEDGE_ID    = 1242223  -- Conocimiento prohibido (mismo buff que Army)
+ns.FORBIDDEN_KNOWLEDGE_ID    = 1242223  -- Forbidden Knowledge / Army of the Dead
 
 ---------------------------------------------------------------------------
 -- Hero talent detection
@@ -34,6 +36,7 @@ ns.ICON_ALPHA      = 1.0       -- Alpha inicial del frame (antes de ADDON_LOADED
 ns.defaults = {
     iconSize            = 64,
     iconAlpha           = 1.0,
+    borderSize          = 2,    -- Grosor del borde del marco (1-8)
     epidemicThreshold   = 3,    -- Base: sin Forbidden Knowledge
     epidemicThresholdFK = 6,    -- Con Forbidden Knowledge activo
     detectionMode       = "real",

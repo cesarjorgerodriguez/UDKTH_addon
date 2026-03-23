@@ -6,7 +6,7 @@ local L = ns.L
 -- Panel de opciones
 ---------------------------------------------------------------------------
 local optionsPanel = CreateFrame("Frame", "AoeDKOptionsPanel", UIParent, "BackdropTemplate")
-optionsPanel:SetSize(240, 420)
+optionsPanel:SetSize(240, 460)
 optionsPanel:SetPoint("CENTER")
 optionsPanel:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -114,10 +114,40 @@ alphaUp:SetScript("OnClick", function()
     UpdateAlphaValue()
 end)
 
+-- Seccion grosor del borde
+local borderLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+borderLabel:SetPoint("TOP", alphaValue, "BOTTOM", 0, -14)
+borderLabel:SetText(L.BORDER_SIZE)
+
+local borderValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+borderValue:SetPoint("TOP", borderLabel, "BOTTOM", 0, -6)
+
+local function UpdateBorderValue()
+    borderValue:SetText(tostring(AoeDKDB.borderSize) .. " px")
+end
+
+local borderDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+borderDown:SetSize(36, 24)
+borderDown:SetPoint("RIGHT", borderValue, "LEFT", -10, 0)
+borderDown:SetText("-")
+borderDown:SetScript("OnClick", function()
+    ns.ApplyBorderSize(AoeDKDB.borderSize - 1)
+    UpdateBorderValue()
+end)
+
+local borderUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+borderUp:SetSize(36, 24)
+borderUp:SetPoint("LEFT", borderValue, "RIGHT", 10, 0)
+borderUp:SetText("+")
+borderUp:SetScript("OnClick", function()
+    ns.ApplyBorderSize(AoeDKDB.borderSize + 1)
+    UpdateBorderValue()
+end)
+
 -- Boton mostrar/ocultar texto
 local textBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 textBtn:SetSize(200, 26)
-textBtn:SetPoint("TOP", alphaValue, "BOTTOM", 0, -14)
+textBtn:SetPoint("TOP", borderValue, "BOTTOM", 0, -14)
 
 local function UpdateTextBtnLabel()
     textBtn:SetText(AoeDKDB.showText and L.HIDE_TEXT or L.SHOW_TEXT)
@@ -228,6 +258,7 @@ local function ToggleOptionsPanel()
         UpdateMoveBtnText()
         UpdateSizeValue()
         UpdateAlphaValue()
+        UpdateBorderValue()
         UpdateTextBtnLabel()
         UpdateThresholdValue()
         UpdateThresholdFKValue()

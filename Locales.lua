@@ -36,6 +36,7 @@ L.DEBUG_MODE = "Mode"
 L.DEBUG_VISIBLE = "Frame visible"
 L.BUFFS_ACTIVE = "Active BUFFS:"
 L.DEBUFFS_ACTIVE = "Active DEBUFFS:"
+L.BORDER_SIZE = "Border thickness"
 L.EPIDEMIC_THRESHOLD = "Epidemic threshold"
 L.EPIDEMIC_THRESHOLD_FK = "Threshold (Forbidden Knowledge)"
 
@@ -71,6 +72,7 @@ if locale == "esES" or locale == "esMX" then
     L.DEBUG_VISIBLE = "Frame visible"
     L.BUFFS_ACTIVE = "BUFFS activos:"
     L.DEBUFFS_ACTIVE = "DEBUFFS activos:"
+    L.BORDER_SIZE = "Grosor del borde"
     L.EPIDEMIC_THRESHOLD = "Umbral de Epidemia"
     L.EPIDEMIC_THRESHOLD_FK = "Umbral (Forbidden Knowledge)"
 end
