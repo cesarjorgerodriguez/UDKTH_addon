@@ -39,6 +39,7 @@ L.DEBUG_VISIBLE = "Frame visible"
 L.BUFFS_ACTIVE = "Active BUFFS:"
 L.DEBUFFS_ACTIVE = "Active DEBUFFS:"
 L.EPIDEMIC_THRESHOLD = "Epidemic threshold"
+L.EPIDEMIC_THRESHOLD_FK = "Threshold (Forbidden Knowledge)"
 
 -- Spanish
 if locale == "esES" or locale == "esMX" then
@@ -73,6 +74,7 @@ if locale == "esES" or locale == "esMX" then
     L.BUFFS_ACTIVE = "BUFFS activos:"
     L.DEBUFFS_ACTIVE = "DEBUFFS activos:"
     L.EPIDEMIC_THRESHOLD = "Umbral de Epidemia"
+    L.EPIDEMIC_THRESHOLD_FK = "Umbral (Forbidden Knowledge)"
 end
 
 -- Spell IDs
@@ -84,11 +86,19 @@ local GRAVEYARD_ID    = 458714      -- Graveyard (mejorado con Ejercito)
 -- Army of the Dead - ID del buff
 local ARMY_BUFF_ID = 1242223
 
+-- Forbidden Knowledge buff (Conocimiento prohibido - Death Coil → Necrotic Coil, Epidemic → Graveyard)
+local FORBIDDEN_KNOWLEDGE_ID = 1242223
+
+-- Hero talent detection
+local RIDER_CHECK_ID   = 444929   -- A Feast of Souls (Rider of the Apocalypse)
+local SANLAYN_CHECK_ID = 434153   -- Gift of the San'layn (San'layn)
+
 -- Config
 local UPDATE_INTERVAL = 0.15      -- Segundos entre actualizaciones
 local ICON_SIZE = 64              -- Tamaño del icono en pixeles
 local ICON_ALPHA = 1.0            -- Transparencia del icono (0.1 a 1.0)
-local EPIDEMIC_THRESHOLD = 4      -- Enemigos minimos para sugerir Epidemia (configurable 2-6)
+local EPIDEMIC_THRESHOLD = 3      -- Base: Epidemia sin Forbidden Knowledge
+local EPIDEMIC_THRESHOLD_FK = 6   -- Con Forbidden Knowledge activo
 
 ---------------------------------------------------------------------------
 -- Frame principal
@@ -148,10 +158,18 @@ local detectionMode = "real"  -- "real" o "dummy"
 -- Cache de clase/spec: no cambian durante combate, se actualizan via PLAYER_SPECIALIZATION_CHANGED
 local cachedClassID   = nil
 local cachedSpecIndex = nil
+local cachedHeroTalent = nil
 local function RefreshClassSpec()
     local _, _, classID = UnitClass("player")
     cachedClassID   = classID
     cachedSpecIndex = GetSpecialization()
+    if IsPlayerSpell(RIDER_CHECK_ID) then
+        cachedHeroTalent = "rider"
+    elseif IsPlayerSpell(SANLAYN_CHECK_ID) then
+        cachedHeroTalent = "sanlayn"
+    else
+        cachedHeroTalent = nil
+    end
 end
 
 -- Tooltip: muestra nombre del spell actual (bloqueado) o instruccion de mover (desbloqueado)
@@ -309,6 +327,10 @@ local function IsArmyActive()
     return aura ~= nil
 end
 
+local function IsForbiddenKnowledgeActive()
+    return C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID) ~= nil
+end
+
 ---------------------------------------------------------------------------
 -- Actualizar icono segun cantidad de enemigos
 ---------------------------------------------------------------------------
@@ -347,7 +369,13 @@ local function UpdateIcon()
     local spellID
     local armyUp = IsArmyActive()
 
-    local threshold = AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD
+    local fkActive = IsForbiddenKnowledgeActive()
+    local threshold
+    if fkActive then
+        threshold = AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK
+    else
+        threshold = AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD
+    end
 
     if armyUp then
         -- Con Ejercito de los Muertos: habilidades mejoradas
@@ -501,7 +529,7 @@ frame:Hide()
 -- Panel de opciones
 ---------------------------------------------------------------------------
 local optionsPanel = CreateFrame("Frame", "AoeDKOptionsPanel", UIParent, "BackdropTemplate")
-optionsPanel:SetSize(240, 360)
+optionsPanel:SetSize(240, 420)
 optionsPanel:SetPoint("CENTER")
 optionsPanel:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -639,7 +667,7 @@ textBtn:SetScript("OnClick", function()
     UpdateTextBtnLabel()
 end)
 
--- Seccion umbral de Epidemia
+-- Seccion umbral de Epidemia (sin Forbidden Knowledge)
 local thresholdLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 thresholdLabel:SetPoint("TOP", textBtn, "BOTTOM", 0, -14)
 thresholdLabel:SetText(L.EPIDEMIC_THRESHOLD)
@@ -648,7 +676,7 @@ local thresholdValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHi
 thresholdValue:SetPoint("TOP", thresholdLabel, "BOTTOM", 0, -6)
 
 local function UpdateThresholdValue()
-    thresholdValue:SetText(tostring(AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) .. "+ enemies")
+    thresholdValue:SetText(tostring(AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) .. "+ " .. L.ENEMIES)
 end
 UpdateThresholdValue()
 
@@ -659,7 +687,7 @@ thresholdDown:SetText("-")
 thresholdDown:SetScript("OnClick", function()
     local t = math.max(2, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) - 1)
     AoeDKDB.epidemicThreshold = t
-    currentSpellID = nil  -- fuerza re-evaluacion
+    currentSpellID = nil
     UpdateThresholdValue()
 end)
 
@@ -668,16 +696,51 @@ thresholdUp:SetSize(36, 24)
 thresholdUp:SetPoint("LEFT", thresholdValue, "RIGHT", 10, 0)
 thresholdUp:SetText("+")
 thresholdUp:SetScript("OnClick", function()
-    local t = math.min(6, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) + 1)
+    local t = math.min(10, (AoeDKDB.epidemicThreshold or EPIDEMIC_THRESHOLD) + 1)
     AoeDKDB.epidemicThreshold = t
-    currentSpellID = nil  -- fuerza re-evaluacion
+    currentSpellID = nil
     UpdateThresholdValue()
+end)
+
+-- Seccion umbral con Forbidden Knowledge
+local thresholdFKLabel = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+thresholdFKLabel:SetPoint("TOP", thresholdValue, "BOTTOM", 0, -14)
+thresholdFKLabel:SetText(L.EPIDEMIC_THRESHOLD_FK)
+
+local thresholdFKValue = optionsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+thresholdFKValue:SetPoint("TOP", thresholdFKLabel, "BOTTOM", 0, -6)
+
+local function UpdateThresholdFKValue()
+    thresholdFKValue:SetText(tostring(AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) .. "+ " .. L.ENEMIES)
+end
+UpdateThresholdFKValue()
+
+local thresholdFKDown = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+thresholdFKDown:SetSize(36, 24)
+thresholdFKDown:SetPoint("RIGHT", thresholdFKValue, "LEFT", -10, 0)
+thresholdFKDown:SetText("-")
+thresholdFKDown:SetScript("OnClick", function()
+    local t = math.max(2, (AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) - 1)
+    AoeDKDB.epidemicThresholdFK = t
+    currentSpellID = nil
+    UpdateThresholdFKValue()
+end)
+
+local thresholdFKUp = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+thresholdFKUp:SetSize(36, 24)
+thresholdFKUp:SetPoint("LEFT", thresholdFKValue, "RIGHT", 10, 0)
+thresholdFKUp:SetText("+")
+thresholdFKUp:SetScript("OnClick", function()
+    local t = math.min(10, (AoeDKDB.epidemicThresholdFK or EPIDEMIC_THRESHOLD_FK) + 1)
+    AoeDKDB.epidemicThresholdFK = t
+    currentSpellID = nil
+    UpdateThresholdFKValue()
 end)
 
 -- Boton reset posicion
 local resetBtn = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
 resetBtn:SetSize(200, 26)
-resetBtn:SetPoint("TOP", thresholdValue, "BOTTOM", 0, -10)
+resetBtn:SetPoint("TOP", thresholdFKValue, "BOTTOM", 0, -10)
 resetBtn:SetText(L.RESET_POSITION)
 resetBtn:SetScript("OnClick", function()
     frame:ClearAllPoints()
@@ -698,6 +761,7 @@ local function ToggleOptionsPanel()
         UpdateAlphaValue()
         UpdateTextBtnLabel()
         UpdateThresholdValue()
+        UpdateThresholdFKValue()
         optionsPanel:Show()
     end
 end
@@ -749,6 +813,8 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  " .. L.DEBUG_SPEC .. ": " .. tostring(specIndex) .. " (necesita 3=Unholy)")
         print("  " .. L.DEBUG_COMBAT .. ": " .. tostring(inCombat))
         print("  " .. L.DEBUG_ARMY .. ": " .. tostring(armyUp))
+        print("  Forbidden Knowledge: " .. tostring(IsForbiddenKnowledgeActive()))
+        print("  Hero talent: " .. (cachedHeroTalent or "unknown"))
         print("  " .. L.DEBUG_ENEMIES .. ": " .. enemyCount)
         print("  " .. L.DEBUG_MODE .. ": " .. detectionMode)
         print("  " .. L.DEBUG_VISIBLE .. ": " .. tostring(frame:IsShown()))
