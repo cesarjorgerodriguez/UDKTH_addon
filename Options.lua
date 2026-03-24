@@ -312,9 +312,7 @@ end)
 
 local resetBtn = MakeWideButton(bodyIcon, L.RESET_POSITION, moveBtn, 8)
 resetBtn:SetScript("OnClick", function()
-    ns.frame:ClearAllPoints()
-    ns.frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    AoeDKDB.point = nil; AoeDKDB.relPoint = nil; AoeDKDB.x = nil; AoeDKDB.y = nil
+    ns.ResetPosition()
     print("|cff61F2A8[AoE DK]|r " .. L.MSG_POSITION_RESET)
 end)
 
@@ -410,6 +408,33 @@ end)
 bodyThr:SetHeight(8 + 52 + 6 + 52 + 10)
 
 ---------------------------------------------------------------------------
+-- SECTION 4: Sonido  (CLOSED)
+---------------------------------------------------------------------------
+local secSnd = MakeSection(L.SECTION_SOUND, false)
+local bodySnd = secSnd.body
+local topAnchor4 = MakeTopAnchor(bodySnd)
+
+local sndEpiBtn = MakeWideButton(bodySnd, "", topAnchor4, 10)
+local function UpdateSndEpiBtnLabel()
+    sndEpiBtn:SetText(L.SOUND_EPIDEMIC .. ": " .. (AoeDKDB.soundEpidemic and "|cff61F2A8ON|r" or "OFF"))
+end
+sndEpiBtn:SetScript("OnClick", function()
+    AoeDKDB.soundEpidemic = not AoeDKDB.soundEpidemic
+    UpdateSndEpiBtnLabel()
+end)
+
+local sndDcBtn = MakeWideButton(bodySnd, "", sndEpiBtn, 8)
+local function UpdateSndDcBtnLabel()
+    sndDcBtn:SetText(L.SOUND_DEATHCOIL .. ": " .. (AoeDKDB.soundDeathCoil and "|cff61F2A8ON|r" or "OFF"))
+end
+sndDcBtn:SetScript("OnClick", function()
+    AoeDKDB.soundDeathCoil = not AoeDKDB.soundDeathCoil
+    UpdateSndDcBtnLabel()
+end)
+
+bodySnd:SetHeight(10 + 28 + 8 + 28 + 12)
+
+---------------------------------------------------------------------------
 RecalcLayout()
 
 ---------------------------------------------------------------------------
@@ -426,6 +451,8 @@ local function ToggleOptionsPanel()
         UpdateTextBtnLabel()
         UpdateThresholdValue()
         UpdateThresholdFKValue()
+        UpdateSndEpiBtnLabel()
+        UpdateSndDcBtnLabel()
         optionsPanel:Show()
     end
 end

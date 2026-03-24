@@ -52,4 +52,6 @@ ns.defaults = {
     epidemicThresholdFK = 6,    -- Con Forbidden Knowledge activo
     detectionMode       = "real",
     showText            = true,
+    soundEpidemic       = false,
+    soundDeathCoil      = false,
 }

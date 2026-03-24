@@ -74,6 +74,9 @@ local forceShow = false       -- para /aoedk test
 local fadeOutPending = false  -- guard contra race condition fade-out/fade-in
 local detectionMode = "real"  -- "real" o "dummy"
 
+-- Forward declarations (defined after npTracker creation below)
+local EnableNpTracker, DisableNpTracker
+
 -- Cache de clase/spec: no cambian durante combate, se actualizan via PLAYER_SPECIALIZATION_CHANGED
 local cachedClassID   = nil
 local cachedSpecIndex = nil
@@ -88,6 +91,12 @@ local function RefreshClassSpec()
         cachedHeroTalent = "sanlayn"
     else
         cachedHeroTalent = nil
+    end
+    -- Solo trackear nameplates para DK Unholy
+    if cachedClassID == 6 and cachedSpecIndex == 3 then
+        EnableNpTracker()
+    else
+        DisableNpTracker()
     end
 end
 
@@ -182,12 +191,23 @@ end
 ---------------------------------------------------------------------------
 local npActive = {}   -- [unit] = true  (nameplates activas de enemigos)
 
--- Tracking de nameplates via eventos
+-- Tracking de nameplates via eventos (registro diferido hasta confirmar DK Unholy)
 local npTracker = CreateFrame("Frame")
-npTracker:RegisterEvent("NAME_PLATE_UNIT_ADDED")
-npTracker:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
-npTracker:RegisterEvent("UNIT_FLAGS")
-npTracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+local npTrackerActive = false
+function EnableNpTracker()
+    if npTrackerActive then return end
+    npTrackerActive = true
+    npTracker:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+    npTracker:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+    npTracker:RegisterEvent("UNIT_FLAGS")
+    npTracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+end
+function DisableNpTracker()
+    if not npTrackerActive then return end
+    npTrackerActive = false
+    npTracker:UnregisterAllEvents()
+    wipe(npActive)
+end
 npTracker:SetScript("OnEvent", function(_, event, unit)
     if event == "NAME_PLATE_UNIT_ADDED" then
         if UnitIsFriend("player", unit) then return end
@@ -267,6 +287,8 @@ end
 -- Actualizar icono segun cantidad de enemigos
 ---------------------------------------------------------------------------
 
+local lastSoundSpellID = nil
+
 local function UpdateIcon()
     -- Solo para DK Profano (Unholy = spec index 3, class ID 6)
     -- Usa valores cacheados: UnitClass/GetSpecialization no cambian durante combate
@@ -338,6 +360,15 @@ local function UpdateIcon()
         if spellInfo then
             spellText:SetText(spellInfo.name)
         end
+        -- Sound alert: only when the suggested spell actually changes
+        if spellID ~= lastSoundSpellID then
+            lastSoundSpellID = spellID
+            if spellID == EPIDEMIC_ID and AoeDKDB.soundEpidemic then
+                PlaySoundFile("Interface\\AddOns\\aoe_dk\\Sounds\\aoe.wav", "Master")
+            elseif spellID == DEATH_COIL_ID and AoeDKDB.soundDeathCoil then
+                PlaySoundFile("Interface\\AddOns\\aoe_dk\\Sounds\\st.wav", "Master")
+            end
+        end
     end
 
     if AoeDKDB.showText then
@@ -364,6 +395,7 @@ local tickerRunning = false
 
 local function StartTicker()
     if not tickerRunning then
+        elapsed = 0
         tickerRunning = true
         ticker:Show()
     end
@@ -430,6 +462,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         if not forceShow and not isUnlocked then
             StopTicker()
             currentSpellID = nil
+            lastSoundSpellID = nil
             local alpha = AoeDKDB.iconAlpha
             fadeOutPending = true
             UIFrameFadeOut(frame, 0.4, alpha, 0)
@@ -472,6 +505,14 @@ ns.ApplyIconAlpha   = ApplyIconAlpha
 ns.ApplyBorderSize  = ApplyBorderSize
 ns.IsUnlocked       = function() return isUnlocked end
 ns.ResetCurrentSpell = function() currentSpellID = nil end
+ns.ResetPosition = function()
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
+    AoeDKDB.point    = nil
+    AoeDKDB.relPoint = nil
+    AoeDKDB.x        = nil
+    AoeDKDB.y        = nil
+end
 
 ---------------------------------------------------------------------------
 -- Slash commands
@@ -488,12 +529,7 @@ SlashCmdList["AOEDK"] = function(msg)
         ShowAnchor()
         print("|cff00ccff[AoE DK]|r " .. L.MSG_UNLOCKED)
     elseif cmd == "reset" then
-        frame:ClearAllPoints()
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-        AoeDKDB.point    = nil
-        AoeDKDB.relPoint = nil
-        AoeDKDB.x        = nil
-        AoeDKDB.y        = nil
+        ns.ResetPosition()
         print("|cff00ccff[AoE DK]|r " .. L.MSG_POSITION_RESET)
     elseif cmd == "test" then
         forceShow = not forceShow
@@ -548,13 +584,17 @@ SlashCmdList["AOEDK"] = function(msg)
         end
     elseif cmd == "auras" then
         print("|cff00ccff[AoE DK] " .. L.BUFFS_ACTIVE .. "|r")
-        AuraUtil.ForEachAura("player", "HELPFUL", nil, function(aura)
+        for i = 1, 40 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
             print("  [" .. (aura.spellId or "?") .. "] " .. (aura.name or "?") .. " (quedan " .. string.format("%.1f", (aura.expirationTime or 0) - GetTime()) .. "s)")
-        end)
+        end
         print("|cff00ccff[AoE DK] " .. L.DEBUFFS_ACTIVE .. "|r")
-        AuraUtil.ForEachAura("player", "HARMFUL", nil, function(aura)
+        for i = 1, 40 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
+            if not aura then break end
             print("  [" .. (aura.spellId or "?") .. "] " .. (aura.name or "?"))
-        end)
+        end
     elseif cmd == "mode" then
         if arg == "dummy" then
             detectionMode = "dummy"
@@ -568,6 +608,17 @@ SlashCmdList["AOEDK"] = function(msg)
             print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_CURRENT .. " |cffffff00" .. detectionMode .. "|r")
             print("  " .. L.MSG_MODE_USAGE)
         end
+    elseif cmd == "help" then
+        print("|cff00ccff[AoE DK]|r Slash commands:")
+        print("  /aoedk          \xe2\x80\x94 Open options panel")
+        print("  /aoedk lock     \xe2\x80\x94 Lock icon position")
+        print("  /aoedk unlock   \xe2\x80\x94 Unlock icon for repositioning")
+        print("  /aoedk reset    \xe2\x80\x94 Reset icon to default position")
+        print("  /aoedk test     \xe2\x80\x94 Toggle test mode (show without combat)")
+        print("  /aoedk mode [real|dummy] \xe2\x80\x94 Switch detection mode")
+        print("  /aoedk debug    \xe2\x80\x94 Show debug information")
+        print("  /aoedk auras    \xe2\x80\x94 List active player auras")
+        print("  /aoedk help     \xe2\x80\x94 Show this help")
     else
         ns.ToggleOptionsPanel()
     end
