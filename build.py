@@ -11,6 +11,7 @@ Salida: dist/aoe_dk-<version>.zip
 
 import os
 import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -26,6 +27,10 @@ DIST_DIR   = ADDON_DIR / "releases"
 INCLUDE = [
     "aoe_dk.lua",
     "aoe_dk.toc",
+    "Config.lua",
+    "Locales.lua",
+    "Options.lua",
+    "Sounds",
     "CHANGELOG.md",
     "README.md",
 ]
@@ -35,6 +40,7 @@ EXCLUIR_NOMBRES = {
     "build.py",
     ".DS_Store",
     "Thumbs.db",
+    "tests",
 }
 
 EXCLUIR_EXT = {".pyc", ".pyo"}
@@ -59,12 +65,45 @@ def incluir_archivo(path: Path) -> bool:
     return True
 
 # ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+def run_tests() -> bool:
+    """Ejecuta los tests con lua. Retorna True si pasan todos."""
+    test_file = ADDON_DIR / "tests" / "test_aoe_dk.lua"
+    if not test_file.exists():
+        print("  AVISO: tests/test_aoe_dk.lua no encontrado, se omiten los tests.")
+        return True
+    print("Ejecutando tests...")
+    result = subprocess.run(
+        ["lua", str(test_file)],
+        cwd=str(ADDON_DIR),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    # Mostrar salida del test (última línea con resumen)
+    output = result.stdout.strip()
+    if output:
+        for line in output.split("\n"):
+            print(f"  {line}")
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr)
+        return False
+    return True
+
+# ---------------------------------------------------------------------------
 # Principal
 # ---------------------------------------------------------------------------
 def build(version: str | None = None):
     toc_path = ADDON_DIR / f"{ADDON_NAME}.toc"
     if not toc_path.exists():
         sys.exit(f"ERROR: {toc_path} no encontrado — ejecuta este script desde la carpeta del addon.")
+
+    # Ejecutar tests antes de empaquetar
+    if not run_tests():
+        sys.exit("ERROR: Los tests han fallado. No se genera el release.")
 
     if version is None:
         version = leer_version_toc(toc_path)

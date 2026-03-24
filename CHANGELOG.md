@@ -1,5 +1,24 @@
 # Unholy Death Knight Target Helper - Changelog
 
+## [1.1.1] - 2026-03-24
+
+### Added
+- **Hero talent threshold modifiers** — Rider of the Apocalypse reduces all thresholds by 1; San'layn applies no modifier. Configurable via `HERO_THRESHOLD_MODIFIER` in `Config.lua`.
+- **Sound alerts for Epidemic / Death Coil** — New options section "Sound" with independent toggles (`soundEpidemic`, `soundDeathCoil`). Plays custom `.wav` files from the Sounds folder when the suggested spell changes to Epidemic or Death Coil. Sound only triggers on actual spell change, preventing spam near threshold boundaries.
+- **Collapsible options panel** — Complete UI redesign with four expandable/collapsible sections (Icon & Position, Visualization, Thresholds, Sound), smooth ease-out cubic animations, and dynamic height adjustment.
+- **UI Scale control** — New slider in the Visualization section to scale the entire panel (0.5x–2.0x). Persists via `AoeDKDB.uiScale`.
+- **Border Size control** — New slider in the Visualization section to adjust border thickness (1–8 px). Persists via `AoeDKDB.borderSize`.
+- **`ns.ResetCurrentSpell()`** — Helper to force icon refresh after threshold adjustments from the Options panel.
+
+### Fixed
+- **`cachedHeroTalent` was computed but unused** — Now applied as a modifier to Epidemic/Army thresholds via `math.max(1, threshold + heroMod)`.
+- **Nameplate tracker active for non-DK characters** — `npTracker` events now only register after confirming DK Unholy; `DisableNpTracker()` unregisters and wipes `npActive` for other classes/specs.
+- **`elapsed` not reset between combats** — `StartTicker()` now sets `elapsed = 0` before showing the ticker, preventing a stale accumulated tick on re-entry.
+- **`AuraUtil.ForEachAura` pagination** — `/aoedk auras` migrated to `C_UnitAuras.GetAuraDataByIndex()` loop (max 40) to avoid pagination issues.
+- **Fade-out / fade-in race condition** — New `fadeOutPending` flag prevents frame flash/stutter when re-entering combat during a fade-out animation.
+
+---
+
 ## [1.1.0] - 2026-03-21
 
 ### Added
