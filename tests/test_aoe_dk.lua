@@ -85,6 +85,7 @@ local GRAVEYARD_ID     = ns.GRAVEYARD_ID
 local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
 local RIDER_CHECK_ID   = ns.RIDER_CHECK_ID
 local SANLAYN_CHECK_ID = ns.SANLAYN_CHECK_ID
+local HERO_THRESHOLD_MODIFIER = ns.HERO_THRESHOLD_MODIFIER
 
 -- Mirror of IsValidEnemy from aoe_dk.lua
 local function IsValidEnemy(unit)
@@ -161,15 +162,14 @@ end
 -- Returns: spellID or nil (nil = frame would be hidden)
 -- fkActive = true when Forbidden Knowledge buff (1242223) is detected.
 -- This means Army is up; unlocks the 4-level rotation using FK threshold.
-local function SelectSpell(enemyCount, fkActive, db)
+-- heroTalent = "rider", "sanlayn", or nil (applies threshold modifier)
+local function SelectSpell(enemyCount, fkActive, db, heroTalent)
     if enemyCount == 0 then return nil end
 
-    local threshold
-    if fkActive then
-        threshold = db.epidemicThresholdFK
-    else
-        threshold = db.epidemicThreshold
-    end
+    -- Calcular threshold base + modificador de hero talent
+    local baseThreshold = fkActive and db.epidemicThresholdFK or db.epidemicThreshold
+    local heroMod = (heroTalent and HERO_THRESHOLD_MODIFIER[heroTalent]) or 0
+    local threshold = math.max(1, baseThreshold + heroMod)
 
     if fkActive then
         -- Con Forbidden Knowledge (Army activo): cuatro niveles
@@ -629,6 +629,59 @@ test("7 enemies + FK → Graveyard (7 >= FK threshold+1=7)", function()
     assertEqual(count, 7)
     assertTrue(fk)
     assertEqual(spell, GRAVEYARD_ID)
+end)
+
+-- ════════════════════════════════════════════════════════════════════════
+-- Hero Talent Threshold Modifiers
+-- ════════════════════════════════════════════════════════════════════════
+suite("Hero Talent: Rider of the Apocalypse (modifier -1)")
+test("Rider, no FK: 1 enemy → Death Coil", function()
+    assertEqual(SelectSpell(1, false, defaultDB, "rider"), DEATH_COIL_ID)
+end)
+test("Rider, no FK: 2 enemies → Epidemic (base 3 → 2 with modifier)", function()
+    assertEqual(SelectSpell(2, false, defaultDB, "rider"), EPIDEMIC_ID)
+end)
+test("Rider, no FK: 3 enemies → Epidemic", function()
+    assertEqual(SelectSpell(3, false, defaultDB, "rider"), EPIDEMIC_ID)
+end)
+test("Rider, FK: 3 enemies → Death Coil (threshold-1=4, so 3 < 4)", function()
+    -- Base FK threshold=6, rider modifier=-1 → effective=5
+    -- threshold-1=4, so 3 → Death Coil
+    assertEqual(SelectSpell(3, true, defaultDB, "rider"), DEATH_COIL_ID)
+end)
+test("Rider, FK: 4 enemies → Epidemic (threshold-1=4)", function()
+    assertEqual(SelectSpell(4, true, defaultDB, "rider"), EPIDEMIC_ID)
+end)
+test("Rider, FK: 5 enemies → Necrotic Coil (threshold=5)", function()
+    assertEqual(SelectSpell(5, true, defaultDB, "rider"), NECROTIC_COIL_ID)
+end)
+test("Rider, FK: 6 enemies → Graveyard (threshold+1=6)", function()
+    assertEqual(SelectSpell(6, true, defaultDB, "rider"), GRAVEYARD_ID)
+end)
+
+suite("Hero Talent: San'layn (modifier 0 / no change)")
+test("San'layn, no FK: 2 enemies → Death Coil (same as no hero talent)", function()
+    assertEqual(SelectSpell(2, false, defaultDB, "sanlayn"), DEATH_COIL_ID)
+end)
+test("San'layn, no FK: 3 enemies → Epidemic (threshold=3)", function()
+    assertEqual(SelectSpell(3, false, defaultDB, "sanlayn"), EPIDEMIC_ID)
+end)
+test("San'layn, FK: 5 enemies → Epidemic (threshold-1=5, FK threshold=6)", function()
+    assertEqual(SelectSpell(5, true, defaultDB, "sanlayn"), EPIDEMIC_ID)
+end)
+test("San'layn, FK: 6 enemies → Necrotic Coil (threshold=6)", function()
+    assertEqual(SelectSpell(6, true, defaultDB, "sanlayn"), NECROTIC_COIL_ID)
+end)
+test("San'layn, FK: 7 enemies → Graveyard (threshold+1=7)", function()
+    assertEqual(SelectSpell(7, true, defaultDB, "sanlayn"), GRAVEYARD_ID)
+end)
+
+suite("Hero Talent: Unknown/nil (no modifier)")
+test("nil hero talent: 2 enemies → Death Coil (base threshold=3)", function()
+    assertEqual(SelectSpell(2, false, defaultDB, nil), DEATH_COIL_ID)
+end)
+test("nil hero talent: 3 enemies → Epidemic", function()
+    assertEqual(SelectSpell(3, false, defaultDB, nil), EPIDEMIC_ID)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════

@@ -23,6 +23,17 @@ ns.RIDER_CHECK_ID   = 444929   -- A Feast of Souls (Rider of the Apocalypse)
 ns.SANLAYN_CHECK_ID = 434153   -- Gift of the San'layn (San'layn)
 
 ---------------------------------------------------------------------------
+-- Hero talent threshold modifiers
+-- Rider of the Apocalypse: AoE-focused hero talent that enhances Army of
+-- the Dead. Reduces thresholds to favor AoE spells earlier.
+-- San'layn: Single-target vampiric hero talent. No modifier (default).
+---------------------------------------------------------------------------
+ns.HERO_THRESHOLD_MODIFIER = {
+    rider   = -1,  -- Rider of the Apocalypse: favor AoE 1 enemy sooner
+    sanlayn = 0,   -- San'layn: no change
+}
+
+---------------------------------------------------------------------------
 -- Runtime constants (not saved)
 ---------------------------------------------------------------------------
 ns.UPDATE_INTERVAL = 0.15      -- Segundos entre actualizaciones

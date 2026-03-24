@@ -13,6 +13,7 @@ local GRAVEYARD_ID           = ns.GRAVEYARD_ID
 local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
 local RIDER_CHECK_ID         = ns.RIDER_CHECK_ID
 local SANLAYN_CHECK_ID       = ns.SANLAYN_CHECK_ID
+local HERO_THRESHOLD_MODIFIER = ns.HERO_THRESHOLD_MODIFIER
 local UPDATE_INTERVAL        = ns.UPDATE_INTERVAL
 local ICON_SIZE              = ns.ICON_SIZE
 local ICON_ALPHA             = ns.ICON_ALPHA
@@ -299,12 +300,11 @@ local function UpdateIcon()
     -- Determinar hechizo sugerido
     local spellID
     local fkActive = IsForbiddenKnowledgeActive()
-    local threshold
-    if fkActive then
-        threshold = AoeDKDB.epidemicThresholdFK
-    else
-        threshold = AoeDKDB.epidemicThreshold
-    end
+    
+    -- Calcular threshold base + modificador de hero talent
+    local baseThreshold = fkActive and AoeDKDB.epidemicThresholdFK or AoeDKDB.epidemicThreshold
+    local heroMod = (cachedHeroTalent and HERO_THRESHOLD_MODIFIER[cachedHeroTalent]) or 0
+    local threshold = math.max(1, baseThreshold + heroMod)  -- Minimo 1
 
     if fkActive then
         -- Con Forbidden Knowledge (Army activo): cuatro niveles de hechizos.
@@ -515,12 +515,21 @@ SlashCmdList["AOEDK"] = function(msg)
         local inCombat = UnitAffectingCombat("player")
         local enemyCount = GetEnemyCount()
         local fkActive = IsForbiddenKnowledgeActive()
+        
+        -- Calcular threshold efectivo
+        local baseThreshold = fkActive and AoeDKDB.epidemicThresholdFK or AoeDKDB.epidemicThreshold
+        local heroMod = (cachedHeroTalent and HERO_THRESHOLD_MODIFIER[cachedHeroTalent]) or 0
+        local effectiveThreshold = math.max(1, baseThreshold + heroMod)
+        
         print("|cff00ccff[AoE DK] DEBUG:|r")
         print("  " .. L.DEBUG_CLASS .. ": " .. tostring(classID) .. " (necesita 6=DK)")
         print("  " .. L.DEBUG_SPEC .. ": " .. tostring(specIndex) .. " (necesita 3=Unholy)")
         print("  " .. L.DEBUG_COMBAT .. ": " .. tostring(inCombat))
         print("  " .. L.DEBUG_ARMY .. " / Forbidden Knowledge: " .. tostring(fkActive))
-        print("  Hero talent: " .. (cachedHeroTalent or "unknown"))
+        print("  Hero talent: " .. (cachedHeroTalent or "unknown") .. 
+               " (modifier: " .. (heroMod >= 0 and "+" or "") .. heroMod .. ")")
+        print("  Threshold: " .. baseThreshold .. " => " .. effectiveThreshold .. 
+               " (base " .. (fkActive and "FK" or "normal") .. " + hero modifier)")
         print("  " .. L.DEBUG_ENEMIES .. ": " .. enemyCount)
         print("  " .. L.DEBUG_MODE .. ": " .. detectionMode)
         print("  " .. L.DEBUG_VISIBLE .. ": " .. tostring(frame:IsShown()))
