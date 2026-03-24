@@ -56,6 +56,17 @@ optionsPanel:SetScript("OnHide", function()
     if ns.IsUnlocked() then ns.HideAnchor() end
 end)
 
+---------------------------------------------------------------------------
+-- Apply UI Scale to options panel
+---------------------------------------------------------------------------
+local function ApplyUIScale(scale)
+    scale = math.max(0.5, math.min(2.0, scale))
+    -- Redondear a 1 decimal
+    scale = math.floor(scale * 10 + 0.5) / 10
+    AoeDKDB.uiScale = scale
+    optionsPanel:SetScale(scale)
+end
+
 -- Header
 local headerBg = optionsPanel:CreateTexture(nil, "BACKGROUND")
 headerBg:SetPoint("TOPLEFT", 1, -1)
@@ -204,29 +215,75 @@ local function MakeRow(parent, anchorAbove, gap, labelText)
 end
 
 ---------------------------------------------------------------------------
--- Collapsible sections
+-- Collapsible sections (slide animation via clip frame)
 ---------------------------------------------------------------------------
 local sections = {}
+local ANIM_DURATION = 0.25
+local animActive = {}   -- [sec] = { startH, targetH, elapsed }
 
-local function RecalcLayout()
+-- Shared animation driver (hidden when no animations are running)
+local animDriver = CreateFrame("Frame")
+animDriver:Hide()
+
+local function LayoutFromClips()
     local cursor = HEADER_H + 8
     for _, sec in ipairs(sections) do
         sec.header:ClearAllPoints()
         sec.header:SetPoint("TOPLEFT",  optionsPanel, "TOPLEFT",  1, -cursor)
         sec.header:SetPoint("TOPRIGHT", optionsPanel, "TOPRIGHT", -1, -cursor)
         cursor = cursor + sec.header:GetHeight()
-        if sec.open then
-            sec.body:Show()
-            sec.body:ClearAllPoints()
-            sec.body:SetPoint("TOPLEFT",  optionsPanel, "TOPLEFT",  0, -cursor)
-            sec.body:SetPoint("TOPRIGHT", optionsPanel, "TOPRIGHT", 0, -cursor)
-            cursor = cursor + sec.body:GetHeight()
+
+        sec.clip:ClearAllPoints()
+        sec.clip:SetPoint("TOPLEFT",  optionsPanel, "TOPLEFT",  0, -cursor)
+        sec.clip:SetPoint("TOPRIGHT", optionsPanel, "TOPRIGHT", 0, -cursor)
+
+        local clipH = sec.clip:GetHeight()
+        if clipH > 1 then
+            sec.clip:Show()
         else
-            sec.body:Hide()
+            sec.clip:Hide()
         end
-        cursor = cursor + 2
+        cursor = cursor + clipH + 2
     end
     optionsPanel:SetHeight(cursor + PAD_BOT)
+end
+
+animDriver:SetScript("OnUpdate", function(self, dt)
+    local anyRunning = false
+    for sec, anim in pairs(animActive) do
+        anim.elapsed = anim.elapsed + dt
+        if anim.elapsed >= ANIM_DURATION then
+            sec.clip:SetHeight(math.max(anim.targetH, 0.1))
+            animActive[sec] = nil
+        else
+            anyRunning = true
+            local p = anim.elapsed / ANIM_DURATION
+            p = 1 - (1 - p) * (1 - p) * (1 - p)   -- ease-out cubic
+            local h = anim.startH + (anim.targetH - anim.startH) * p
+            sec.clip:SetHeight(math.max(h, 0.1))
+        end
+    end
+    LayoutFromClips()
+    if not anyRunning then
+        self:Hide()
+    end
+end)
+
+local function RecalcLayout(instant)
+    for _, sec in ipairs(sections) do
+        local targetH = sec.open and sec.body:GetHeight() or 0
+        if instant then
+            sec.clip:SetHeight(math.max(targetH, 0.1))
+            if sec.open then sec.clip:Show() else sec.clip:Hide() end
+            animActive[sec] = nil
+        else
+            local startH = sec.clip:GetHeight()
+            if sec.open then sec.clip:Show() end
+            animActive[sec] = { startH = startH, targetH = targetH, elapsed = 0 }
+            animDriver:Show()
+        end
+    end
+    LayoutFromClips()
 end
 
 local function MakeSection(labelText, startOpen)
@@ -275,9 +332,19 @@ local function MakeSection(labelText, startOpen)
 
     sec.header = hdr
 
-    local body = CreateFrame("Frame", nil, optionsPanel)
+    -- Clip frame: masks body content beyond its own bounds
+    local clip = CreateFrame("Frame", nil, optionsPanel)
+    clip:SetClipsChildren(true)
+    clip:SetHeight(0.1)
+    sec.clip = clip
+
+    -- Body: parented to clip, anchored at its top
+    local body = CreateFrame("Frame", nil, clip)
+    body:SetPoint("TOPLEFT",  clip, "TOPLEFT",  0, 0)
+    body:SetPoint("TOPRIGHT", clip, "TOPRIGHT", 0, 0)
     body:SetHeight(10)
     sec.body = body
+
     sections[#sections + 1] = sec
     return sec
 end
@@ -370,7 +437,19 @@ textBtn:SetScript("OnClick", function()
     UpdateTextBtnLabel()
 end)
 
-bodyCfg:SetHeight(10 + 28 + 12)
+local scaleRow, scaleValue, scaleDown, scaleUp = MakeRow(bodyCfg, textBtn, 10, L.UI_SCALE)
+local function UpdateScaleValue()
+    scaleValue:SetText(tostring(math.floor(AoeDKDB.uiScale * 100 + 0.5)) .. "%%")
+end
+scaleDown:SetScript("OnClick", function()
+    ApplyUIScale(AoeDKDB.uiScale - 0.1); UpdateScaleValue()
+end)
+scaleUp:SetScript("OnClick", function()
+    ApplyUIScale(AoeDKDB.uiScale + 0.1); UpdateScaleValue()
+end)
+
+-- Body height: 10(top) + 28(textBtn) + 10 + 52(scaleRow) + 12(bot)
+bodyCfg:SetHeight(10 + 28 + 10 + 52 + 12)
 
 ---------------------------------------------------------------------------
 -- SECTION 3: Umbrales  (CLOSED)
@@ -435,7 +514,7 @@ end)
 bodySnd:SetHeight(10 + 28 + 8 + 28 + 12)
 
 ---------------------------------------------------------------------------
-RecalcLayout()
+RecalcLayout(true)  -- true = sin animación en la inicialización
 
 ---------------------------------------------------------------------------
 -- Toggle
@@ -448,11 +527,13 @@ local function ToggleOptionsPanel()
         UpdateSizeValue()
         UpdateAlphaValue()
         UpdateBorderValue()
+        UpdateScaleValue()
         UpdateTextBtnLabel()
         UpdateThresholdValue()
         UpdateThresholdFKValue()
         UpdateSndEpiBtnLabel()
         UpdateSndDcBtnLabel()
+        ApplyUIScale(AoeDKDB.uiScale)  -- Apply saved scale
         optionsPanel:Show()
     end
 end

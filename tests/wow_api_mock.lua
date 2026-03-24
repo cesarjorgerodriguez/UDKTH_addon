@@ -233,42 +233,58 @@ function C_UnitAuras.GetPlayerAuraBySpellID(spellID)
 end
 
 ---------------------------------------------------------------------------
--- Frame stubs (lightweight, just enough to not error)
+-- Frame stubs (stateful: tracks height, show/hide, scripts, alpha, scale)
 ---------------------------------------------------------------------------
 UIParent = UIParent or {}
 
 local FrameMethods = {}
 FrameMethods.__index = FrameMethods
 
-function FrameMethods:SetSize() end
+function FrameMethods:SetSize(w, h) self._width = w; self._height = h end
+function FrameMethods:SetHeight(h) self._height = h end
+function FrameMethods:GetHeight() return self._height or 0 end
+function FrameMethods:SetWidth(w) self._width = w end
+function FrameMethods:GetWidth() return self._width or 0 end
 function FrameMethods:SetPoint() end
 function FrameMethods:ClearAllPoints() end
 function FrameMethods:SetMovable() end
 function FrameMethods:SetClampedToScreen() end
 function FrameMethods:EnableMouse() end
 function FrameMethods:RegisterForDrag() end
-function FrameMethods:SetScript() end
+function FrameMethods:SetScript(name, fn) self._scripts = self._scripts or {}; self._scripts[name] = fn end
+function FrameMethods:GetScript(name) return self._scripts and self._scripts[name] end
 function FrameMethods:SetBackdrop() end
 function FrameMethods:SetBackdropColor() end
 function FrameMethods:SetBackdropBorderColor() end
 function FrameMethods:RegisterEvent() end
 function FrameMethods:RegisterUnitEvent() end
 function FrameMethods:UnregisterEvent() end
-function FrameMethods:Show() end
-function FrameMethods:Hide() end
-function FrameMethods:IsShown() return false end
-function FrameMethods:SetAlpha() end
+function FrameMethods:UnregisterAllEvents() end
+function FrameMethods:Show() self._shown = true end
+function FrameMethods:Hide() self._shown = false end
+function FrameMethods:IsShown() return self._shown == true end
+function FrameMethods:SetAlpha(a) self._alpha = a end
+function FrameMethods:GetAlpha() return self._alpha or 1 end
+function FrameMethods:SetScale(s) self._scale = s end
+function FrameMethods:GetScale() return self._scale or 1 end
 function FrameMethods:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
 function FrameMethods:StartMoving() end
 function FrameMethods:StopMovingOrSizing() end
 function FrameMethods:SetFrameStrata() end
+function FrameMethods:SetClipsChildren() end
 
 function FrameMethods:CreateTexture(...)
     local tex = {}
     function tex:SetPoint() end
+    function tex:SetAllPoints() end
     function tex:SetTexCoord() end
     function tex:SetAlpha() end
     function tex:SetTexture() end
+    function tex:SetColorTexture() end
+    function tex:SetSize() end
+    function tex:SetHeight() end
+    function tex:SetVertexColor() end
+    function tex:SetRotation() end
     function tex:Show() end
     function tex:Hide() end
     return tex
@@ -277,16 +293,18 @@ end
 function FrameMethods:CreateFontString(...)
     local fs = {}
     function fs:SetPoint() end
+    function fs:SetAllPoints() end
     function fs:SetTextColor() end
-    function fs:SetText() end
+    function fs:SetText(_, t) fs._text = t end
+    function fs:GetText() return fs._text or "" end
+    function fs:SetJustifyH() end
     function fs:Show() end
     function fs:Hide() end
-    function fs:GetText() return "" end
     return fs
 end
 
 function CreateFrame(_, name, ...)
-    local f = setmetatable({}, FrameMethods)
+    local f = setmetatable({ _shown = false, _height = 0, _width = 0, _alpha = 1, _scale = 1 }, FrameMethods)
     if name then _G[name] = f end
     return f
 end
@@ -301,9 +319,18 @@ AuraUtil = AuraUtil or { ForEachAura = function() end }
 
 function UIFrameFadeIn() end
 function UIFrameFadeOut() end
-C_Timer = C_Timer or { After = function(_, cb) if cb then cb() end end }
+C_Timer = C_Timer or {
+    After = function(_, cb) if cb then cb() end end,
+    NewTicker = function(_, cb) return { Cancel = function() end } end,
+}
 function GetTime() return 0 end
 function GetLocale() return "enUS" end
+function PlaySoundFile() end
+SlashCmdList = SlashCmdList or {}
+UISpecialFrames = UISpecialFrames or {}
+
+-- math.pow may not exist in Lua 5.3+; the addon uses it (Lua 5.1/LuaJIT)
+if not math.pow then math.pow = function(b, e) return b ^ e end end
 
 function strsplit(delim, str, max)
     local t = {}

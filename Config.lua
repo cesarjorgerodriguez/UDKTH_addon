@@ -48,6 +48,7 @@ ns.defaults = {
     iconSize            = 64,
     iconAlpha           = 1.0,
     borderSize          = 2,    -- Grosor del borde del marco (1-8)
+    uiScale             = 1.0,  -- Escala general del UI (0.5 - 2.0)
     epidemicThreshold   = 3,    -- Base: sin Forbidden Knowledge
     epidemicThresholdFK = 6,    -- Con Forbidden Knowledge activo
     detectionMode       = "real",

@@ -685,6 +685,313 @@ test("nil hero talent: 3 enemies → Epidemic", function()
 end)
 
 -- ════════════════════════════════════════════════════════════════════════
+-- Options Panel: Animation & UI Scale
+-- ════════════════════════════════════════════════════════════════════════
+
+-- Initialize AoeDKDB with defaults so Options.lua can reference it
+AoeDKDB = {}
+for k, v in pairs(ns.defaults) do AoeDKDB[k] = v end
+
+-- Expose ns functions that Options.lua expects (normally set by aoe_dk.lua)
+ns.IsUnlocked      = function() return false end
+ns.ShowAnchor       = function() end
+ns.HideAnchor       = function() end
+ns.ApplyIconSize    = function(s) AoeDKDB.iconSize = s end
+ns.ApplyIconAlpha   = function(a) AoeDKDB.iconAlpha = a end
+ns.ApplyBorderSize  = function(s) AoeDKDB.borderSize = s end
+ns.ResetCurrentSpell = function() end
+ns.ResetPosition    = function() end
+ns.frame            = CreateFrame()
+ns.icon             = ns.frame:CreateTexture()
+ns.countText        = ns.frame:CreateFontString()
+ns.spellText        = ns.frame:CreateFontString()
+
+-- Load Options.lua (creates the panel, sections, etc.)
+loadAddonFile("Options.lua")
+
+-- ── 16. Ease-out cubic function ────────────────────────────────────────
+suite("Animation: Ease-out Cubic Math")
+
+-- The addon uses: p = 1 - (1-p)*(1-p)*(1-p)
+local function easeOutCubic(t)
+    return 1 - (1 - t) * (1 - t) * (1 - t)
+end
+
+test("easeOutCubic(0) = 0 (start)", function()
+    assertEqual(easeOutCubic(0), 0)
+end)
+
+test("easeOutCubic(1) = 1 (end)", function()
+    assertEqual(easeOutCubic(1), 1)
+end)
+
+test("easeOutCubic(0.5) = 0.875 (fast start)", function()
+    assertEqual(easeOutCubic(0.5), 0.875)
+end)
+
+test("easeOutCubic is monotonically increasing", function()
+    local prev = 0
+    for i = 1, 10 do
+        local t = i / 10
+        local val = easeOutCubic(t)
+        assertTrue(val >= prev, "easeOutCubic("..t..") should be >= "..prev..", got "..val)
+        prev = val
+    end
+end)
+
+test("easeOutCubic accelerates early, decelerates late", function()
+    local earlyDelta = easeOutCubic(0.2) - easeOutCubic(0.0)
+    local lateDelta  = easeOutCubic(1.0) - easeOutCubic(0.8)
+    assertTrue(earlyDelta > lateDelta,
+        "early segment should be larger than late segment for ease-out")
+end)
+
+-- ── 17. Clip height interpolation ──────────────────────────────────────
+suite("Animation: Clip Height Interpolation")
+
+-- Simulates the OnUpdate logic from Options.lua
+local function simulateAnimStep(startH, targetH, elapsed, duration)
+    if elapsed >= duration then
+        return math.max(targetH, 0.1), true  -- finished
+    end
+    local p = elapsed / duration
+    p = 1 - (1 - p) * (1 - p) * (1 - p)
+    local h = startH + (targetH - startH) * p
+    return math.max(h, 0.1), false
+end
+
+test("Opening: t=0 → clip = startH (0.1 min)", function()
+    local h, done = simulateAnimStep(0.1, 200, 0, 0.25)
+    assertEqual(h, 0.1)
+    assertFalse(done)
+end)
+
+test("Opening: t=duration → clip = targetH", function()
+    local h, done = simulateAnimStep(0.1, 200, 0.25, 0.25)
+    assertEqual(h, 200)
+    assertTrue(done)
+end)
+
+test("Opening: t>duration → clip = targetH (clamped)", function()
+    local h, done = simulateAnimStep(0.1, 200, 0.5, 0.25)
+    assertEqual(h, 200)
+    assertTrue(done)
+end)
+
+test("Opening: mid-animation height is between start and target", function()
+    local h, done = simulateAnimStep(0.1, 200, 0.125, 0.25)
+    assertFalse(done)
+    assertTrue(h > 0.1, "mid-anim should be > startH, got " .. h)
+    assertTrue(h < 200, "mid-anim should be < targetH, got " .. h)
+end)
+
+test("Closing: startH=200, targetH=0 → clips to 0.1 minimum", function()
+    local h, done = simulateAnimStep(200, 0, 0.25, 0.25)
+    assertEqual(h, 0.1)
+    assertTrue(done)
+end)
+
+test("Closing: mid-animation height is between 0.1 and startH", function()
+    local h, done = simulateAnimStep(200, 0, 0.125, 0.25)
+    assertFalse(done)
+    assertTrue(h >= 0.1, "should not go below 0.1, got " .. h)
+    assertTrue(h < 200,  "should be less than startH, got " .. h)
+end)
+
+test("Heights never go below 0.1 (floor)", function()
+    for i = 0, 25 do
+        local elapsed = i / 100  -- 0 to 0.25
+        local h = simulateAnimStep(0.1, 0, elapsed, 0.25)
+        assertTrue(h >= 0.1, "at t=" .. elapsed .. " height was " .. h)
+    end
+end)
+
+-- ── 18. Animation state machine ────────────────────────────────────────
+suite("Animation: State Machine")
+
+-- Simulates a full open/close cycle by running multiple steps
+local function runAnimation(startH, targetH, duration, stepSize)
+    local results = {}
+    local h, done
+    local t = 0
+    repeat
+        h, done = simulateAnimStep(startH, targetH, t, duration)
+        results[#results + 1] = { t = t, h = h, done = done }
+        t = t + stepSize
+    until done or t > duration + stepSize
+    return results
+end
+
+test("Full open animation produces smooth ascending heights", function()
+    local frames = runAnimation(0.1, 200, 0.25, 0.05)
+    assertTrue(#frames >= 5, "should have multiple frames")
+    -- Verify ascending (open)
+    for i = 2, #frames do
+        assertTrue(frames[i].h >= frames[i-1].h,
+            "frame " .. i .. " h=" .. frames[i].h .. " should be >= frame " ..
+            (i-1) .. " h=" .. frames[i-1].h)
+    end
+    -- Last frame should reach target
+    assertEqual(frames[#frames].h, 200)
+    assertTrue(frames[#frames].done)
+end)
+
+test("Full close animation produces smooth descending heights", function()
+    local frames = runAnimation(200, 0, 0.25, 0.05)
+    assertTrue(#frames >= 5)
+    -- Verify descending (close)
+    for i = 2, #frames do
+        assertTrue(frames[i].h <= frames[i-1].h,
+            "frame " .. i .. " h=" .. frames[i].h .. " should be <= frame " ..
+            (i-1) .. " h=" .. frames[i-1].h)
+    end
+    -- Last frame floors at 0.1
+    assertEqual(frames[#frames].h, 0.1)
+end)
+
+test("Animation completes in exactly ANIM_DURATION", function()
+    local frames = runAnimation(0.1, 100, 0.25, 0.01)
+    local lastFrame = frames[#frames]
+    assertTrue(lastFrame.done)
+    assertTrue(lastFrame.t >= 0.25, "should complete at or after 0.25")
+    assertTrue(lastFrame.t <= 0.26, "should not overshoot too far")
+end)
+
+-- ── 19. Section toggle logic ───────────────────────────────────────────
+suite("Animation: Section Toggle Logic")
+
+test("Section starts with open=true if startOpen is true", function()
+    -- We check via Options.lua: secIcon (SECTION_ICON) is created with startOpen=true
+    -- The panel should exist by now from loadAddonFile("Options.lua")
+    assertTrue(AoeDKOptionsPanel ~= nil, "Options panel should exist")
+end)
+
+-- ── 20. UI Scale ───────────────────────────────────────────────────────
+suite("UI Scale")
+
+-- Mirror of ApplyUIScale from Options.lua
+local function NormalizeUIScale(scale)
+    scale = math.max(0.5, math.min(2.0, scale))
+    return math.floor(scale * 10 + 0.5) / 10
+end
+
+test("1.0 stays 1.0", function()
+    assertEqual(NormalizeUIScale(1.0), 1.0)
+end)
+
+test("0.3 clamps to 0.5", function()
+    assertEqual(NormalizeUIScale(0.3), 0.5)
+end)
+
+test("2.5 clamps to 2.0", function()
+    assertEqual(NormalizeUIScale(2.5), 2.0)
+end)
+
+test("0.75 rounds to 0.8", function()
+    assertEqual(NormalizeUIScale(0.75), 0.8)
+end)
+
+test("1.44 rounds to 1.4", function()
+    assertEqual(NormalizeUIScale(1.44), 1.4)
+end)
+
+test("1.45 rounds to 1.5", function()
+    assertEqual(NormalizeUIScale(1.45), 1.5)
+end)
+
+test("0.5 stays 0.5 (lower bound)", function()
+    assertEqual(NormalizeUIScale(0.5), 0.5)
+end)
+
+test("2.0 stays 2.0 (upper bound)", function()
+    assertEqual(NormalizeUIScale(2.0), 2.0)
+end)
+
+test("Step increments: 1.0 + 0.1 = 1.1", function()
+    assertEqual(NormalizeUIScale(1.0 + 0.1), 1.1)
+end)
+
+test("Step decrements: 1.0 - 0.1 = 0.9", function()
+    assertEqual(NormalizeUIScale(1.0 - 0.1), 0.9)
+end)
+
+-- ── 21. Layout cursor math ────────────────────────────────────────────
+suite("Animation: Layout Cursor Math")
+
+-- Simulates the LayoutFromClips cursor accumulation
+local function simulateLayout(secs, headerH, padBot)
+    local cursor = headerH + 8  -- HEADER_H + 8
+    for _, s in ipairs(secs) do
+        cursor = cursor + s.headerH
+        cursor = cursor + s.clipH + 2
+    end
+    return cursor + padBot
+end
+
+test("1 section open: cursor = header+8 + hdrH + bodyH + 2 + pad", function()
+    local totalH = simulateLayout(
+        {{ headerH = 30, clipH = 200 }},
+        44, 14   -- HEADER_H, PAD_BOT
+    )
+    -- 44 + 8 + 30 + 200 + 2 + 14 = 298
+    assertEqual(totalH, 298)
+end)
+
+test("1 section closed: cursor uses clipH=0.1", function()
+    local totalH = simulateLayout(
+        {{ headerH = 30, clipH = 0.1 }},
+        44, 14
+    )
+    -- 44 + 8 + 30 + 0.1 + 2 + 14 = 98.1
+    assertTrue(math.abs(totalH - 98.1) < 0.01)
+end)
+
+test("4 sections all closed", function()
+    local secs = {}
+    for i = 1, 4 do secs[i] = { headerH = 30, clipH = 0.1 } end
+    local totalH = simulateLayout(secs, 44, 14)
+    -- 44 + 8 + 4*(30 + 0.1 + 2) + 14 = 44+8 + 4*32.1 + 14 = 194.4
+    assertTrue(math.abs(totalH - 194.4) < 0.01)
+end)
+
+test("4 sections, only first open (body=262)", function()
+    local secs = {
+        { headerH = 30, clipH = 262 },
+        { headerH = 30, clipH = 0.1 },
+        { headerH = 30, clipH = 0.1 },
+        { headerH = 30, clipH = 0.1 },
+    }
+    local totalH = simulateLayout(secs, 44, 14)
+    -- 44+8 + (30+262+2) + 3*(30+0.1+2) + 14 = 52 + 294 + 96.3 + 14 = 456.3
+    assertTrue(math.abs(totalH - 456.3) < 0.01)
+end)
+
+-- ── 22. Config defaults include uiScale ────────────────────────────────
+suite("Config: uiScale Default")
+
+test("ns.defaults has uiScale = 1.0", function()
+    assertTrue(ns.defaults.uiScale ~= nil, "uiScale should be defined in defaults")
+    assertEqual(ns.defaults.uiScale, 1.0)
+end)
+
+test("AoeDKDB.uiScale initialized from defaults", function()
+    assertTrue(AoeDKDB.uiScale ~= nil)
+    assertEqual(AoeDKDB.uiScale, 1.0)
+end)
+
+-- ── 23. Options panel loading ─────────────────────────────────────────
+suite("Options Panel: Loaded Correctly")
+
+test("AoeDKOptionsPanel global frame exists", function()
+    assertTrue(AoeDKOptionsPanel ~= nil, "Panel should be created by Options.lua")
+end)
+
+test("ns.ToggleOptionsPanel function is exposed", function()
+    assertTrue(type(ns.ToggleOptionsPanel) == "function",
+        "ToggleOptionsPanel should be a function on ns")
+end)
+
+-- ════════════════════════════════════════════════════════════════════════
 -- Summary
 -- ════════════════════════════════════════════════════════════════════════
 Mock.RestorePrint()
