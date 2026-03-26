@@ -95,16 +95,32 @@ local function IsValidEnemy(unit)
     return true
 end
 
+-- Mirror of IsDummyContext from aoe_dk.lua
+-- Returns true when player is not in real combat and has at least one valid
+-- enemy nameplate visible (Training Dummy signature).
+local function IsDummyContext(npActive)
+    if UnitAffectingCombat("player") then return false end
+    for unit in pairs(npActive) do
+        if IsValidEnemy(unit) then
+            return true
+        end
+    end
+    return false
+end
+
 -- Mirror of GetEnemyCount from aoe_dk.lua
--- npActive is passed in so tests can control it; detectionMode/forceShow as params
-local function GetEnemyCount(npActive, detectionMode, forceShow)
+-- npActive is passed in so tests can control it; forceShow as param.
+-- Detection is automatic: dummy context when player is not in combat and
+-- visible nameplates are not in combat/no threat (Training Dummy signature).
+local function GetEnemyCount(npActive, forceShow)
+    local isDummy = IsDummyContext(npActive) or forceShow
     local count = 0
     local targetCounted = false
     local hasTarget = UnitExists("target")
 
     for unit in pairs(npActive) do
         if IsValidEnemy(unit) then
-            if detectionMode == "dummy" or forceShow then
+            if isDummy then
                 count = count + 1
                 if not targetCounted and hasTarget and UnitIsUnit(unit, "target") then
                     targetCounted = true
@@ -123,7 +139,7 @@ local function GetEnemyCount(npActive, detectionMode, forceShow)
     end
 
     if not targetCounted and hasTarget and IsValidEnemy("target") then
-        if detectionMode == "dummy" or forceShow then
+        if isDummy then
             count = count + 1
         else
             local inCbt = UnitAffectingCombat("target")
@@ -341,21 +357,21 @@ test("FK threshold=8 → 6 enemies = Death Coil (below 7=thresh-1)", function()
     assertEqual(SelectSpell(6, true, { epidemicThreshold = 3, epidemicThresholdFK = 8 }), DEATH_COIL_ID)
 end)
 
--- ── 7. Enemy counting — Real mode ────────────────────────────────────
+-- ── 7. Enemy counting — Auto mode (real context) ────────────────────
 suite("Enemy Count — Real Mode")
 
 test("No nameplates, no target → 0", function()
     Mock.Reset()
     Mock.ClearTarget()
     local npa = {}
-    assertEqual(GetEnemyCount(npa, "real", false), 0)
+    assertEqual(GetEnemyCount(npa, false), 0)
 end)
 
 test("3 enemy nameplates in combat → 3", function()
     Mock.Reset()
     Mock.ClearTarget()
     local npa = AddEnemies(3, { inCombat = true, threat = 1 })
-    assertEqual(GetEnemyCount(npa, "real", false), 3)
+    assertEqual(GetEnemyCount(npa, false), 3)
 end)
 
 test("3 enemies, 1 dead → 2", function()
@@ -364,7 +380,7 @@ test("3 enemies, 1 dead → 2", function()
     local npa = AddEnemies(2, { inCombat = true, threat = 1 })
     Mock.AddNameplate("nameplate3", { dead = true, inCombat = true, threat = 1 })
     npa["nameplate3"] = true
-    assertEqual(GetEnemyCount(npa, "real", false), 2)
+    assertEqual(GetEnemyCount(npa, false), 2)
 end)
 
 test("3 enemies, 1 not in combat and no threat → 2", function()
@@ -373,7 +389,7 @@ test("3 enemies, 1 not in combat and no threat → 2", function()
     local npa = AddEnemies(2, { inCombat = true, threat = 1 })
     Mock.AddNameplate("nameplate3", { inCombat = false, threat = nil })
     npa["nameplate3"] = true
-    assertEqual(GetEnemyCount(npa, "real", false), 2)
+    assertEqual(GetEnemyCount(npa, false), 2)
 end)
 
 test("Enemy with threat but not in combat → counted", function()
@@ -381,17 +397,18 @@ test("Enemy with threat but not in combat → counted", function()
     Mock.ClearTarget()
     Mock.AddNameplate("nameplate1", { inCombat = false, threat = 0 })
     local npa = { nameplate1 = true }
-    assertEqual(GetEnemyCount(npa, "real", false), 1)
+    assertEqual(GetEnemyCount(npa, false), 1)
 end)
 
--- ── 8. Enemy counting — Dummy mode ──────────────────────────────────
+-- ── 8. Enemy counting — Auto mode (dummy context) ───────────────────
 suite("Enemy Count — Dummy Mode")
 
-test("5 enemies, none in combat → 5 (dummy counts all)", function()
+test("5 enemies, none in combat → 5 (auto detects dummy context)", function()
     Mock.Reset()
+    Mock.SetInCombat(false)   -- player not in combat → dummy context detected
     Mock.ClearTarget()
     local npa = AddEnemies(5, { inCombat = false, threat = nil })
-    assertEqual(GetEnemyCount(npa, "dummy", false), 5)
+    assertEqual(GetEnemyCount(npa, false), 5)
 end)
 
 -- ── 9. Enemy counting — Target deduplication ────────────────────────
@@ -401,35 +418,36 @@ test("Target already in nameplates → not double-counted", function()
     Mock.Reset()
     local npa = AddEnemies(3, { inCombat = true, threat = 1 })
     Mock.SetTarget({ exists = true, inCombat = true, threat = 1, unit = "nameplate2" })
-    assertEqual(GetEnemyCount(npa, "real", false), 3)
+    assertEqual(GetEnemyCount(npa, false), 3)
 end)
 
 test("Target NOT in nameplates → added as +1", function()
     Mock.Reset()
     local npa = AddEnemies(2, { inCombat = true, threat = 1 })
     Mock.SetTarget({ exists = true, inCombat = true, threat = 1, unit = nil })
-    assertEqual(GetEnemyCount(npa, "real", false), 3)
+    assertEqual(GetEnemyCount(npa, false), 3)
 end)
 
 test("Target not in combat (real mode) → not added", function()
     Mock.Reset()
     local npa = AddEnemies(2, { inCombat = true, threat = 1 })
     Mock.SetTarget({ exists = true, inCombat = false, threat = nil, unit = nil })
-    assertEqual(GetEnemyCount(npa, "real", false), 2)
+    assertEqual(GetEnemyCount(npa, false), 2)
 end)
 
-test("Target not in combat (dummy mode) → added", function()
+test("Target not in combat (dummy context) → added", function()
     Mock.Reset()
+    Mock.SetInCombat(false)   -- player not in combat → auto dummy context
     local npa = AddEnemies(2, { inCombat = false, threat = nil })
     Mock.SetTarget({ exists = true, inCombat = false, threat = nil, unit = nil })
-    assertEqual(GetEnemyCount(npa, "dummy", false), 3)
+    assertEqual(GetEnemyCount(npa, false), 3)
 end)
 
 test("forceShow=true counts like dummy mode", function()
     Mock.Reset()
     local npa = AddEnemies(3, { inCombat = false, threat = nil })
     Mock.ClearTarget()
-    assertEqual(GetEnemyCount(npa, "real", true), 3)
+    assertEqual(GetEnemyCount(npa, true), 3)
 end)
 
 -- ── 10. Class/Spec detection ──────────────────────────────────────────
@@ -550,14 +568,14 @@ test("All nameplates dead → 0 enemies", function()
     Mock.AddNameplate("nameplate1", { dead = true, inCombat = true })
     Mock.AddNameplate("nameplate2", { dead = true, inCombat = true })
     local npa = { nameplate1 = true, nameplate2 = true }
-    assertEqual(GetEnemyCount(npa, "real", false), 0)
+    assertEqual(GetEnemyCount(npa, false), 0)
 end)
 
 test("Only target, no nameplates, in combat → 1", function()
     Mock.Reset()
     Mock.ClearNameplates()
     Mock.SetTarget({ exists = true, inCombat = true, threat = 1 })
-    assertEqual(GetEnemyCount({}, "real", false), 1)
+    assertEqual(GetEnemyCount({}, false), 1)
 end)
 
 test("Friendly nameplate filtered out", function()
@@ -567,7 +585,7 @@ test("Friendly nameplate filtered out", function()
     -- Friendly units have canAttack = false in IsValidEnemy
     Mock.AddNameplate("nameplate1", { friend = true, canAttack = false, inCombat = true })
     local npa = { nameplate1 = true }
-    assertEqual(GetEnemyCount(npa, "real", false), 0)
+    assertEqual(GetEnemyCount(npa, false), 0)
 end)
 
 -- ── 15. Integration: full flow enemy → spell ──────────────────────────
@@ -577,7 +595,7 @@ test("2 real enemies + target (dedup) → Death Coil (2 < threshold 3)", functio
     Mock.Reset()
     local npa = AddEnemies(2, { inCombat = true, threat = 1 })
     Mock.SetTarget({ exists = true, inCombat = true, threat = 1, unit = "nameplate1" })
-    local count = GetEnemyCount(npa, "real", false)
+    local count = GetEnemyCount(npa, false)
     local spell = SelectSpell(count, false, defaultDB)
     assertEqual(count, 2)
     assertEqual(spell, DEATH_COIL_ID)
@@ -587,7 +605,7 @@ test("3 real enemies → Epidemic", function()
     Mock.Reset()
     Mock.ClearTarget()
     local npa = AddEnemies(3, { inCombat = true, threat = 1 })
-    local count = GetEnemyCount(npa, "real", false)
+    local count = GetEnemyCount(npa, false)
     local spell = SelectSpell(count, false, defaultDB)
     assertEqual(count, 3)
     assertEqual(spell, EPIDEMIC_ID)
@@ -597,7 +615,7 @@ test("4 enemies, no FK → Epidemic (4 >= base threshold 3)", function()
     Mock.Reset()
     Mock.ClearTarget()
     local npa = AddEnemies(4, { inCombat = true, threat = 1 })
-    local count = GetEnemyCount(npa, "real", false)
+    local count = GetEnemyCount(npa, false)
     local fk = IsForbiddenKnowledgeActive()
     local spell = SelectSpell(count, fk, defaultDB)
     assertEqual(count, 4)
@@ -610,7 +628,7 @@ test("4 enemies + FK → Death Coil (4 < FK threshold-1=5)", function()
     Mock.ClearTarget()
     Mock.AddPlayerAura(FORBIDDEN_KNOWLEDGE_ID, "Forbidden Knowledge")
     local npa = AddEnemies(4, { inCombat = true, threat = 1 })
-    local count = GetEnemyCount(npa, "real", false)
+    local count = GetEnemyCount(npa, false)
     local fk = IsForbiddenKnowledgeActive()
     local spell = SelectSpell(count, fk, defaultDB)
     assertEqual(count, 4)
@@ -623,7 +641,7 @@ test("7 enemies + FK → Graveyard (7 >= FK threshold+1=7)", function()
     Mock.ClearTarget()
     Mock.AddPlayerAura(FORBIDDEN_KNOWLEDGE_ID, "Forbidden Knowledge")
     local npa = AddEnemies(7, { inCombat = true, threat = 1 })
-    local count = GetEnemyCount(npa, "real", false)
+    local count = GetEnemyCount(npa, false)
     local fk = IsForbiddenKnowledgeActive()
     local spell = SelectSpell(count, fk, defaultDB)
     assertEqual(count, 7)

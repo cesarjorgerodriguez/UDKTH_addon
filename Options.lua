@@ -1,4 +1,11 @@
 ﻿local _, ns = ...
+
+-- Bail out immediately for non-Death Knights (classID 6)
+do
+    local _, _, classID = UnitClass("player")
+    if classID ~= 6 then return end
+end
+
 local L = ns.L
 
 ---------------------------------------------------------------------------
@@ -48,7 +55,14 @@ optionsPanel:SetMovable(true)
 optionsPanel:EnableMouse(true)
 optionsPanel:RegisterForDrag("LeftButton")
 optionsPanel:SetScript("OnDragStart", optionsPanel.StartMoving)
-optionsPanel:SetScript("OnDragStop", optionsPanel.StopMovingOrSizing)
+optionsPanel:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, relPoint, x, y = self:GetPoint()
+    AoeDKDB.optionsPoint    = point
+    AoeDKDB.optionsRelPoint = relPoint
+    AoeDKDB.optionsX        = x
+    AoeDKDB.optionsY        = y
+end)
 optionsPanel:Hide()
 tinsert(UISpecialFrames, "AoeDKOptionsPanel")
 
@@ -212,6 +226,92 @@ local function MakeRow(parent, anchorAbove, gap, labelText)
     sep:SetColorTexture(BD.r, BD.g, BD.b, 0.35)
 
     return row, val, dn, up
+end
+
+---------------------------------------------------------------------------
+-- Widget helper: slider row with editbox for direct input
+-- Returns: row frame, slider frame, SyncUI(v) function
+---------------------------------------------------------------------------
+local function MakeSliderRow(parent, anchorAbove, gap, labelText, minVal, maxVal)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(72)
+    row:SetPoint("TOPLEFT",  anchorAbove, "BOTTOMLEFT",  0, -(gap or 10))
+    row:SetPoint("TOPRIGHT", anchorAbove, "BOTTOMRIGHT", 0, -(gap or 10))
+
+    local lbl = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    lbl:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -4)
+    lbl:SetText(labelText)
+    lbl:SetTextColor(LBL.r, LBL.g, LBL.b)
+
+    -- Slider (leaves 56px on the right for the editbox)
+    local slider = CreateFrame("Slider", nil, row, "BackdropTemplate")
+    slider:SetOrientation("HORIZONTAL")
+    slider:SetHeight(20)
+    slider:SetPoint("TOPLEFT",  lbl, "BOTTOMLEFT",  0, -6)
+    slider:SetPoint("TOPRIGHT", row, "TOPRIGHT", -56, -20)
+    slider:SetMinMaxValues(minVal, maxVal)
+    slider:SetValueStep(1)
+    slider:SetObeyStepOnDrag(true)
+    slider:SetBackdrop(BD_FLAT)
+    slider:SetBackdropColor(BB.r, BB.g, BB.b, 1)
+    slider:SetBackdropBorderColor(BD.r, BD.g, BD.b, 0.4)
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    thumb:SetSize(10, 22)
+    thumb:SetColorTexture(A.r, A.g, A.b, 0.9)
+    slider:SetThumbTexture(thumb)
+
+    -- EditBox for direct value entry
+    local eb = CreateFrame("EditBox", nil, row, "BackdropTemplate")
+    eb:SetSize(48, 20)
+    eb:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -20)
+    eb:SetAutoFocus(false)
+    eb:SetMaxLetters(3)
+    eb:SetNumeric(true)
+    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetJustifyH("CENTER")
+    eb:SetBackdrop(BD_FLAT)
+    eb:SetBackdropColor(BB.r, BB.g, BB.b, 1)
+    eb:SetBackdropBorderColor(BD.r, BD.g, BD.b, 0.4)
+    eb:SetTextInsets(4, 4, 2, 2)
+
+    local function SyncUI(v)
+        v = math.max(minVal, math.min(maxVal, math.floor(v + 0.5)))
+        slider:SetValue(v)
+        eb:SetText(tostring(v))
+    end
+
+    slider:SetScript("OnValueChanged", function(self, val, userInput)
+        if not userInput then return end
+        local v = math.floor(val + 0.5)
+        eb:SetText(tostring(v))
+        if self.onChange then self.onChange(v) end
+    end)
+
+    eb:SetScript("OnEditFocusGained", function(self)
+        self:SetBackdropBorderColor(A.r, A.g, A.b, 0.85)
+    end)
+    eb:SetScript("OnEditFocusLost", function(self)
+        self:SetBackdropBorderColor(BD.r, BD.g, BD.b, 0.4)
+    end)
+    eb:SetScript("OnEnterPressed", function(self)
+        local v = math.max(minVal, math.min(maxVal, tonumber(self:GetText()) or minVal))
+        SyncUI(v)
+        if slider.onChange then slider.onChange(math.floor(slider:GetValue() + 0.5)) end
+        self:ClearFocus()
+    end)
+    eb:SetScript("OnEscapePressed", function(self)
+        self:SetText(tostring(math.floor(slider:GetValue() + 0.5)))
+        self:ClearFocus()
+    end)
+
+    -- Separator line at bottom of row
+    local sep = row:CreateTexture(nil, "ARTWORK")
+    sep:SetHeight(1)
+    sep:SetPoint("BOTTOMLEFT",  row, "BOTTOMLEFT",  0, 0)
+    sep:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+    sep:SetColorTexture(BD.r, BD.g, BD.b, 0.35)
+
+    return row, slider, SyncUI
 end
 
 ---------------------------------------------------------------------------
@@ -383,18 +483,31 @@ resetBtn:SetScript("OnClick", function()
     print("|cff61F2A8[AoE DK]|r " .. L.MSG_POSITION_RESET)
 end)
 
-local sizeRow, sizeValue, sizeDown, sizeUp = MakeRow(bodyIcon, resetBtn, 10, L.ICON_SIZE)
-local function UpdateSizeValue()
-    sizeValue:SetText(tostring(AoeDKDB.iconSize) .. " px")
+-- Icon size: slider 0-100 maps to 32-128 px
+local function sizeToSlider(px)
+    return math.max(0, math.min(100, math.floor((px - 32) * 100 / 96 + 0.5)))
 end
-sizeDown:SetScript("OnClick", function()
-    ns.ApplyIconSize(math.max(32, AoeDKDB.iconSize - 8)); UpdateSizeValue()
-end)
-sizeUp:SetScript("OnClick", function()
-    ns.ApplyIconSize(math.min(128, AoeDKDB.iconSize + 8)); UpdateSizeValue()
-end)
+local function sliderToSize(v)
+    return math.max(32, math.min(128, math.floor(32 + v * 96 / 100 + 0.5)))
+end
+local sizeRow, sizeSlider, SyncSizeUI = MakeSliderRow(bodyIcon, resetBtn, 10, L.ICON_SIZE, 0, 100)
+sizeSlider.onChange = function(v)
+    ns.ApplyIconSize(sliderToSize(v))
+end
+local function UpdateSizeSlider()
+    SyncSizeUI(sizeToSlider(AoeDKDB.iconSize))
+end
 
-local alphaRow, alphaValue, alphaDown, alphaUp = MakeRow(bodyIcon, sizeRow, 6, L.ICON_TRANSPARENCY)
+-- Border size: slider 1-8 px
+local borderRow, borderSlider, SyncBorderUI = MakeSliderRow(bodyIcon, sizeRow, 6, L.BORDER_SIZE, 1, 8)
+borderSlider.onChange = function(v)
+    ns.ApplyBorderSize(v)
+end
+local function UpdateBorderSlider()
+    SyncBorderUI(AoeDKDB.borderSize)
+end
+
+local alphaRow, alphaValue, alphaDown, alphaUp = MakeRow(bodyIcon, borderRow, 6, L.ICON_TRANSPARENCY)
 local function UpdateAlphaValue()
     alphaValue:SetText(tostring(math.floor(AoeDKDB.iconAlpha * 100 + 0.5)) .. "%%")
 end
@@ -405,19 +518,8 @@ alphaUp:SetScript("OnClick", function()
     ns.ApplyIconAlpha(math.min(1.0, AoeDKDB.iconAlpha + 0.1)); UpdateAlphaValue()
 end)
 
-local borderRow, borderValue, borderDown, borderUp = MakeRow(bodyIcon, alphaRow, 6, L.BORDER_SIZE)
-local function UpdateBorderValue()
-    borderValue:SetText(tostring(AoeDKDB.borderSize) .. " px")
-end
-borderDown:SetScript("OnClick", function()
-    ns.ApplyBorderSize(AoeDKDB.borderSize - 1); UpdateBorderValue()
-end)
-borderUp:SetScript("OnClick", function()
-    ns.ApplyBorderSize(AoeDKDB.borderSize + 1); UpdateBorderValue()
-end)
-
--- Body height: 10(top) + 28(moveBtn) + 8 + 28(resetBtn) + 10 + 52*3(rows) + 6*2(gaps) + 10(bot)
-bodyIcon:SetHeight(10 + 28 + 8 + 28 + 10 + 52 + 6 + 52 + 6 + 52 + 10)
+-- Body height: 10(top) + 28(moveBtn) + 8 + 28(resetBtn) + 10 + 72(sizeSlider) + 6 + 72(borderSlider) + 6 + 52(alphaRow) + 10(bot)
+bodyIcon:SetHeight(10 + 28 + 8 + 28 + 10 + 72 + 6 + 72 + 6 + 52 + 10)
 
 ---------------------------------------------------------------------------
 -- SECTION 2: Visualizacion  (CLOSED)
@@ -524,9 +626,9 @@ local function ToggleOptionsPanel()
         optionsPanel:Hide()
     else
         UpdateMoveBtnText()
-        UpdateSizeValue()
+        UpdateSizeSlider()
         UpdateAlphaValue()
-        UpdateBorderValue()
+        UpdateBorderSlider()
         UpdateScaleValue()
         UpdateTextBtnLabel()
         UpdateThresholdValue()
@@ -534,6 +636,11 @@ local function ToggleOptionsPanel()
         UpdateSndEpiBtnLabel()
         UpdateSndDcBtnLabel()
         ApplyUIScale(AoeDKDB.uiScale)  -- Apply saved scale
+        -- Restaurar posicion guardada del panel
+        if AoeDKDB.optionsPoint then
+            optionsPanel:ClearAllPoints()
+            optionsPanel:SetPoint(AoeDKDB.optionsPoint, UIParent, AoeDKDB.optionsRelPoint, AoeDKDB.optionsX, AoeDKDB.optionsY)
+        end
         optionsPanel:Show()
     end
 end

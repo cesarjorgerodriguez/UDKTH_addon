@@ -36,7 +36,7 @@ ns.HERO_THRESHOLD_MODIFIER = {
 ---------------------------------------------------------------------------
 -- Runtime constants (not saved)
 ---------------------------------------------------------------------------
-ns.UPDATE_INTERVAL = 0.15      -- Segundos entre actualizaciones
+ns.UPDATE_INTERVAL = 0.5       -- Fallback interval; eventos relevantes fuerzan UpdateIcon() de inmediato
 ns.ICON_SIZE       = 64        -- Tamaño inicial del frame (antes de ADDON_LOADED)
 ns.ICON_ALPHA      = 1.0       -- Alpha inicial del frame (antes de ADDON_LOADED)
 
@@ -51,7 +51,6 @@ ns.defaults = {
     uiScale             = 1.0,  -- Escala general del UI (0.5 - 2.0)
     epidemicThreshold   = 3,    -- Base: sin Forbidden Knowledge
     epidemicThresholdFK = 6,    -- Con Forbidden Knowledge activo
-    detectionMode       = "real",
     showText            = true,
     soundEpidemic       = false,
     soundDeathCoil      = false,

@@ -1,6 +1,12 @@
 -- AoE DK: Core logic
 local addonName, ns = ...
 
+-- Bail out immediately for non-Death Knights (classID 6)
+do
+    local _, _, classID = UnitClass("player")
+    if classID ~= 6 then return end
+end
+
 ---------------------------------------------------------------------------
 -- Import from namespace (populated by Locales.lua & Config.lua)
 ---------------------------------------------------------------------------
@@ -43,20 +49,21 @@ frame:SetScript("OnDragStop", function(self)
     AoeDKDB.y        = y
 end)
 
-frame:SetBackdrop({
+local frameBackdrop = {
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Buttons\\WHITE8X8",
-    tile = true, tileSize = 16, edgeSize = 2,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-})
-frame:SetBackdropColor(0, 0, 0, 0)
-frame:SetBackdropBorderColor(0, 0, 0, 1)
+    tile = true, tileSize = 16,
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+}
+frame:SetBackdrop(frameBackdrop)
+frame:SetBackdropColor(0, 0, 0, 1)  -- border color = solid black bg
 
 -- Icono del hechizo sugerido
 local icon = frame:CreateTexture(nil, "ARTWORK")
 icon:SetPoint("TOPLEFT", 2, -2)
 icon:SetPoint("BOTTOMRIGHT", -2, 2)
 icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+local FK_R, FK_G, FK_B = 0.380, 0.949, 0.659  -- verde acento de la UI
 
 -- Texto con la cuenta de enemigos
 local countText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -72,10 +79,10 @@ spellText:SetTextColor(1, 1, 1)
 local currentSpellID = nil
 local forceShow = false       -- para /aoedk test
 local fadeOutPending = false  -- guard contra race condition fade-out/fade-in
-local detectionMode = "real"  -- "real" o "dummy"
 
 -- Forward declarations (defined after npTracker creation below)
-local EnableNpTracker, DisableNpTracker
+local EnableNpTracker, DisableNpTracker, UpdateIcon
+local StartTicker, StopTicker
 
 -- Cache de clase/spec: no cambian durante combate, se actualizan via PLAYER_SPECIALIZATION_CHANGED
 local cachedClassID   = nil
@@ -121,8 +128,7 @@ local function ShowAnchor()
     isUnlocked = true
     icon:SetTexture("Interface\\Icons\\Spell_DeathKnight_Explode_Ghoul")
     icon:SetAlpha(0.5)
-    frame:SetBackdropColor(0, 0, 0, 0)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    frame:SetBackdropColor(0, 0, 0, 1)
     countText:SetText("AoE DK")
     countText:SetTextColor(0, 0.8, 1)
     countText:Show()
@@ -137,8 +143,7 @@ local function HideAnchor()
     icon:SetAlpha(AoeDKDB.iconAlpha)
     countText:SetText("")
     spellText:SetText("")
-    frame:SetBackdropColor(0, 0, 0, 0)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    frame:SetBackdropColor(0, 0, 0, 1)
     currentSpellID = nil
     if not AoeDKDB.showText then
         countText:Hide()
@@ -153,9 +158,21 @@ end
 ---------------------------------------------------------------------------
 -- Funciones de configuracion
 ---------------------------------------------------------------------------
+-- Recalcula el tamaño del frame para que el borde sea externo al icono.
+-- frame = iconSize + 2*borderSize; el icono siempre ocupa iconSize x iconSize.
+local function RefreshFrameSize()
+    local b = AoeDKDB and AoeDKDB.borderSize or 2
+    local s = AoeDKDB and AoeDKDB.iconSize or ICON_SIZE
+    local total = s + 2 * b
+    frame:SetSize(total, total)
+    icon:ClearAllPoints()
+    icon:SetPoint("TOPLEFT", b, -b)
+    icon:SetPoint("BOTTOMRIGHT", -b, b)
+end
+
 local function ApplyIconSize(size)
-    frame:SetSize(size, size)
     AoeDKDB.iconSize = size
+    RefreshFrameSize()
 end
 
 local function ApplyIconAlpha(alpha)
@@ -171,17 +188,7 @@ end
 local function ApplyBorderSize(size)
     size = math.max(1, math.min(8, size))
     AoeDKDB.borderSize = size
-    frame:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Buttons\\WHITE8X8",
-        tile = true, tileSize = 16, edgeSize = size,
-        insets = { left = size, right = size, top = size, bottom = size },
-    })
-    frame:SetBackdropColor(0, 0, 0, 0)
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
-    -- Ajustar el icono para respetar el nuevo grosor del borde
-    icon:SetPoint("TOPLEFT", size, -size)
-    icon:SetPoint("BOTTOMRIGHT", -size, size)
+    RefreshFrameSize()
 end
 
 ---------------------------------------------------------------------------
@@ -211,12 +218,16 @@ end
 npTracker:SetScript("OnEvent", function(_, event, unit)
     if event == "NAME_PLATE_UNIT_ADDED" then
         if UnitIsFriend("player", unit) then return end
+        if not UnitCanAttack("player", unit) then return end
         npActive[unit] = true
+        if UnitAffectingCombat("player") or forceShow then UpdateIcon() end
     elseif event == "NAME_PLATE_UNIT_REMOVED" then
         npActive[unit] = nil
+        if UnitAffectingCombat("player") or forceShow then UpdateIcon() end
     elseif event == "UNIT_FLAGS" then
         if npActive[unit] and UnitIsFriend("player", unit) then
             npActive[unit] = nil
+            if UnitAffectingCombat("player") or forceShow then UpdateIcon() end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         wipe(npActive)
@@ -239,13 +250,13 @@ local function GetEnemyCount()
     -- Paso 1: Nameplates activas (fuente principal, via eventos)
     for unit in pairs(npActive) do
         if IsValidEnemy(unit) then
-            if detectionMode == "dummy" or forceShow then
+            if forceShow then
                 count = count + 1
                 if not targetCounted and hasTarget and UnitIsUnit(unit, "target") then
                     targetCounted = true
                 end
             else
-                -- Real mode: solo mobs en combate o con threat
+                -- Modo real: solo mobs en combate o con threat
                 local inCbt = UnitAffectingCombat(unit)
                 local threat = UnitThreatSituation("player", unit)
                 if inCbt or (threat ~= nil) then
@@ -260,7 +271,7 @@ local function GetEnemyCount()
 
     -- Paso 2: Siempre contar target actual si es valido y no fue contado
     if not targetCounted and hasTarget and IsValidEnemy("target") then
-        if detectionMode == "dummy" or forceShow then
+        if forceShow then
             count = count + 1
         else
             local inCbt = UnitAffectingCombat("target")
@@ -289,7 +300,7 @@ end
 
 local lastSoundSpellID = nil
 
-local function UpdateIcon()
+UpdateIcon = function()
     -- Solo para DK Profano (Unholy = spec index 3, class ID 6)
     -- Usa valores cacheados: UnitClass/GetSpecialization no cambian durante combate
     if not forceShow then
@@ -380,8 +391,12 @@ local function UpdateIcon()
         spellText:Hide()
     end
 
-    -- Borde negro siempre
-    frame:SetBackdropBorderColor(0, 0, 0, 1)
+    -- Borde según estado FK
+    if fkActive then
+        frame:SetBackdropColor(FK_R, FK_G, FK_B, 1)
+    else
+        frame:SetBackdropColor(0, 0, 0, 1)
+    end
 
     frame:Show()
 end
@@ -393,7 +408,7 @@ local ticker = CreateFrame("Frame", "AoeDKTicker", UIParent)
 local elapsed = 0
 local tickerRunning = false
 
-local function StartTicker()
+StartTicker = function()
     if not tickerRunning then
         elapsed = 0
         tickerRunning = true
@@ -401,7 +416,7 @@ local function StartTicker()
     end
 end
 
-local function StopTicker()
+StopTicker = function()
     tickerRunning = false
     ticker:Hide()
 end
@@ -438,14 +453,12 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             frame:ClearAllPoints()
             frame:SetPoint(AoeDKDB.point, UIParent, AoeDKDB.relPoint, AoeDKDB.x, AoeDKDB.y)
         end
-        frame:SetSize(AoeDKDB.iconSize, AoeDKDB.iconSize)
         icon:SetAlpha(AoeDKDB.iconAlpha)
-        ApplyBorderSize(AoeDKDB.borderSize)
+        ApplyBorderSize(AoeDKDB.borderSize)  -- also calls RefreshFrameSize()
         if not AoeDKDB.showText then
             countText:Hide()
             spellText:Hide()
         end
-        detectionMode = AoeDKDB.detectionMode
         RefreshClassSpec()
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "UNIT_AURA" and arg1 == "player" then
@@ -504,7 +517,7 @@ ns.ApplyIconSize    = ApplyIconSize
 ns.ApplyIconAlpha   = ApplyIconAlpha
 ns.ApplyBorderSize  = ApplyBorderSize
 ns.IsUnlocked       = function() return isUnlocked end
-ns.ResetCurrentSpell = function() currentSpellID = nil end
+ns.ResetCurrentSpell = function() currentSpellID = nil; lastSoundSpellID = nil end
 ns.ResetPosition = function()
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
@@ -567,7 +580,7 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  Threshold: " .. baseThreshold .. " => " .. effectiveThreshold .. 
                " (base " .. (fkActive and "FK" or "normal") .. " + hero modifier)")
         print("  " .. L.DEBUG_ENEMIES .. ": " .. enemyCount)
-        print("  " .. L.DEBUG_MODE .. ": " .. detectionMode)
+        print("  " .. L.DEBUG_MODE .. ": real")
         print("  " .. L.DEBUG_VISIBLE .. ": " .. tostring(frame:IsShown()))
         print("  isUnlocked: " .. tostring(isUnlocked))
         print("  forceShow: " .. tostring(forceShow))
@@ -595,19 +608,6 @@ SlashCmdList["AOEDK"] = function(msg)
             if not aura then break end
             print("  [" .. (aura.spellId or "?") .. "] " .. (aura.name or "?"))
         end
-    elseif cmd == "mode" then
-        if arg == "dummy" then
-            detectionMode = "dummy"
-            AoeDKDB.detectionMode = "dummy"
-            print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_DUMMY)
-        elseif arg == "real" then
-            detectionMode = "real"
-            AoeDKDB.detectionMode = "real"
-            print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_REAL)
-        else
-            print("|cff00ccff[AoE DK]|r " .. L.MSG_MODE_CURRENT .. " |cffffff00" .. detectionMode .. "|r")
-            print("  " .. L.MSG_MODE_USAGE)
-        end
     elseif cmd == "help" then
         print("|cff00ccff[AoE DK]|r Slash commands:")
         print("  /aoedk          \xe2\x80\x94 Open options panel")
@@ -615,7 +615,6 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  /aoedk unlock   \xe2\x80\x94 Unlock icon for repositioning")
         print("  /aoedk reset    \xe2\x80\x94 Reset icon to default position")
         print("  /aoedk test     \xe2\x80\x94 Toggle test mode (show without combat)")
-        print("  /aoedk mode [real|dummy] \xe2\x80\x94 Switch detection mode")
         print("  /aoedk debug    \xe2\x80\x94 Show debug information")
         print("  /aoedk auras    \xe2\x80\x94 List active player auras")
         print("  /aoedk help     \xe2\x80\x94 Show this help")

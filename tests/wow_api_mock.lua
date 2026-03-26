@@ -37,10 +37,6 @@ local function DefaultState()
 
         -- Player auras:  { [spellID] = { name, spellId, expirationTime } | true }
         playerAuras = {},
-
-        -- Detection mode forwarded into the addon
-        detectionMode = "real",
-        forceShow     = false,
     }
 end
 
@@ -272,6 +268,24 @@ function FrameMethods:StartMoving() end
 function FrameMethods:StopMovingOrSizing() end
 function FrameMethods:SetFrameStrata() end
 function FrameMethods:SetClipsChildren() end
+-- Slider methods
+function FrameMethods:SetOrientation() end
+function FrameMethods:SetMinMaxValues(mn, mx) self._minVal = mn; self._maxVal = mx end
+function FrameMethods:SetValueStep() end
+function FrameMethods:SetObeyStepOnDrag() end
+function FrameMethods:SetThumbTexture() end
+function FrameMethods:SetValue(v) self._value = v end
+function FrameMethods:GetValue() return self._value or 0 end
+-- EditBox methods
+function FrameMethods:SetAutoFocus() end
+function FrameMethods:SetMaxLetters() end
+function FrameMethods:SetNumeric() end
+function FrameMethods:SetFontObject() end
+function FrameMethods:SetJustifyH() end
+function FrameMethods:SetTextInsets() end
+function FrameMethods:SetText(t) self._text = t end
+function FrameMethods:GetText() return self._text or "" end
+function FrameMethods:ClearFocus() end
 
 function FrameMethods:CreateTexture(...)
     local tex = {}
@@ -312,6 +326,7 @@ end
 ---------------------------------------------------------------------------
 -- Misc globals used by the addon
 ---------------------------------------------------------------------------
+
 GameTooltip = GameTooltip or { SetOwner = function() end, ClearLines = function() end,
     AddLine = function() end, Show = function() end, Hide = function() end }
 
@@ -335,13 +350,18 @@ if not math.pow then math.pow = function(b, e) return b ^ e end end
 function strsplit(delim, str, max)
     local t = {}
     local n = 0
-    for part in string.gmatch(str, "([^" .. delim .. "]+)") do
-        n = n + 1
-        if max and n >= max then
-            t[n] = str:sub(str:find(part, 1, true))
+    local dlen = #delim
+    local pos = 1
+    while true do
+        local found = string.find(str, delim, pos, true)  -- plain/literal find
+        if not found or (max and n + 1 >= max) then
+            n = n + 1
+            t[n] = string.sub(str, pos)
             break
         end
-        t[n] = part
+        n = n + 1
+        t[n] = string.sub(str, pos, found - 1)
+        pos = found + dlen
     end
     return unpack(t)
 end
