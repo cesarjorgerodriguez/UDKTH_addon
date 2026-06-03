@@ -1,5 +1,21 @@
 # Unholy Death Knight Target Helper - Changelog
 
+## [1.1.2] - 2026-06-03
+
+### Added
+- **Army cast fallback for FK detection** — Added `ARMY_OF_THE_DEAD_ID` and a taint-safe fallback window (`FK_CAST_FALLBACK_SECONDS`) triggered by `UNIT_SPELLCAST_SUCCEEDED` for player Army casts. This keeps Forbidden Knowledge logic stable if aura lookups are delayed or inconsistent during combat.
+- **Debug visibility for fallback state** — `/aoedk debug` now prints remaining FK cast fallback time (`FK cast fallback (s)`) to simplify live troubleshooting.
+
+### Fixed
+- **Combat taint while scanning aura data** — Removed secret-value-prone comparisons against `aura.spellId` in FK detection paths. FK state now relies on safe direct aura lookup plus cast-evidence fallback.
+- **FK threshold window desync in combat** — Improved resilience so FK burst thresholds continue to apply reliably during Army windows even when aura propagation is transient.
+
+### Tests
+- Added coverage for `ARMY_OF_THE_DEAD_ID` presence in config defaults.
+- Added FK fallback tests for Army cast success and non-Army negative case.
+
+---
+
 ## [1.1.1] - 2026-03-24
 
 ### Added

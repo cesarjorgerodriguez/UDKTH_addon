@@ -82,6 +82,7 @@ local DEATH_COIL_ID    = ns.DEATH_COIL_ID
 local EPIDEMIC_ID      = ns.EPIDEMIC_ID
 local NECROTIC_COIL_ID = ns.NECROTIC_COIL_ID
 local GRAVEYARD_ID     = ns.GRAVEYARD_ID
+local ARMY_OF_THE_DEAD_ID = ns.ARMY_OF_THE_DEAD_ID
 local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
 local RIDER_CHECK_ID   = ns.RIDER_CHECK_ID
 local SANLAYN_CHECK_ID = ns.SANLAYN_CHECK_ID
@@ -155,8 +156,20 @@ end
 
 -- Mirror of IsForbiddenKnowledgeActive
 -- Returns true when buff 1242223 is present = Forbidden Knowledge / Army active.
+local fkCastFallbackUntil = 0
+local FK_CAST_FALLBACK_SECONDS = 35
+
 local function IsForbiddenKnowledgeActive()
-    return C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID) ~= nil
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID)
+    if aura then return true end
+    if fkCastFallbackUntil > GetTime() then return true end
+    return false
+end
+
+local function OnPlayerSpellcastSucceeded(spellID)
+    if spellID == ARMY_OF_THE_DEAD_ID then
+        fkCastFallbackUntil = GetTime() + FK_CAST_FALLBACK_SECONDS
+    end
 end
 
 -- Mirror of RefreshClassSpec
@@ -270,6 +283,10 @@ end)
 test("FORBIDDEN_KNOWLEDGE_ID is defined and correct", function()
     assertTrue(ns.FORBIDDEN_KNOWLEDGE_ID ~= nil)
     assertEqual(ns.FORBIDDEN_KNOWLEDGE_ID, 1242223)
+end)
+
+test("ARMY_OF_THE_DEAD_ID is defined", function()
+    assertTrue(ns.ARMY_OF_THE_DEAD_ID ~= nil)
 end)
 
 -- ── 2. Spell selection — No FK ────────────────────────────────────────
@@ -516,8 +533,23 @@ end)
 
 test("FK active → true", function()
     Mock.Reset()
+    fkCastFallbackUntil = 0
     Mock.AddPlayerAura(FORBIDDEN_KNOWLEDGE_ID, "Forbidden Knowledge / Army")
     assertTrue(IsForbiddenKnowledgeActive())
+end)
+
+test("FK fallback via Army cast → true without aura", function()
+    Mock.Reset()
+    fkCastFallbackUntil = 0
+    OnPlayerSpellcastSucceeded(ARMY_OF_THE_DEAD_ID)
+    assertTrue(IsForbiddenKnowledgeActive())
+end)
+
+test("Non-Army cast does not trigger FK fallback", function()
+    Mock.Reset()
+    fkCastFallbackUntil = 0
+    OnPlayerSpellcastSucceeded(12345)
+    assertFalse(IsForbiddenKnowledgeActive())
 end)
 
 -- ── 13. ApplyIconAlpha normalization ─────────────────────────────────

@@ -16,6 +16,7 @@ local DEATH_COIL_ID          = ns.DEATH_COIL_ID
 local EPIDEMIC_ID            = ns.EPIDEMIC_ID
 local NECROTIC_COIL_ID       = ns.NECROTIC_COIL_ID
 local GRAVEYARD_ID           = ns.GRAVEYARD_ID
+local ARMY_OF_THE_DEAD_ID    = ns.ARMY_OF_THE_DEAD_ID
 local FORBIDDEN_KNOWLEDGE_ID = ns.FORBIDDEN_KNOWLEDGE_ID
 local RIDER_CHECK_ID         = ns.RIDER_CHECK_ID
 local SANLAYN_CHECK_ID       = ns.SANLAYN_CHECK_ID
@@ -79,6 +80,8 @@ spellText:SetTextColor(1, 1, 1)
 local currentSpellID = nil
 local forceShow = false       -- para /aoedk test
 local fadeOutPending = false  -- guard contra race condition fade-out/fade-in
+local fkCastFallbackUntil = 0
+local FK_CAST_FALLBACK_SECONDS = 35
 
 -- Forward declarations (defined after npTracker creation below)
 local EnableNpTracker, DisableNpTracker, UpdateIcon
@@ -291,7 +294,16 @@ end
 -- habilidades mejoradas y el umbral FK.
 ---------------------------------------------------------------------------
 local function IsForbiddenKnowledgeActive()
-    return C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID) ~= nil
+    local aura = C_UnitAuras.GetPlayerAuraBySpellID(FORBIDDEN_KNOWLEDGE_ID)
+    if aura then return true end
+
+    -- Fallback taint-safe: si el aura query falla temporalmente en combate,
+    -- usar evidencia reciente del casteo de Army.
+    if fkCastFallbackUntil and fkCastFallbackUntil > GetTime() then
+        return true
+    end
+
+    return false
 end
 
 ---------------------------------------------------------------------------
@@ -375,9 +387,9 @@ UpdateIcon = function()
         if spellID ~= lastSoundSpellID then
             lastSoundSpellID = spellID
             if spellID == EPIDEMIC_ID and AoeDKDB.soundEpidemic then
-                PlaySoundFile("Interface\\AddOns\\aoe_dk\\Sounds\\aoe.wav", "Master")
+                PlaySoundFile("Interface\\AddOns\\aoedk\\Sounds\\aoe.wav", "Master")
             elseif spellID == DEATH_COIL_ID and AoeDKDB.soundDeathCoil then
-                PlaySoundFile("Interface\\AddOns\\aoe_dk\\Sounds\\st.wav", "Master")
+                PlaySoundFile("Interface\\AddOns\\aoedk\\Sounds\\st.wav", "Master")
             end
         end
     end
@@ -439,9 +451,10 @@ frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterUnitEvent("UNIT_AURA", "player")  -- solo auras del jugador, no de todas las unidades
+frame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
-frame:SetScript("OnEvent", function(self, event, arg1)
+frame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     if event == "ADDON_LOADED" and arg1 == addonName then
         -- Merge defaults: garantiza que todos los campos existen en AoeDKDB
         AoeDKDB = AoeDKDB or {}
@@ -466,6 +479,15 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             currentSpellID = nil
             UpdateIcon()
         end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" and arg1 == "player" then
+        local spellID = arg3
+        if spellID == ARMY_OF_THE_DEAD_ID then
+            fkCastFallbackUntil = GetTime() + FK_CAST_FALLBACK_SECONDS
+            if UnitAffectingCombat("player") or forceShow then
+                currentSpellID = nil
+                UpdateIcon()
+            end
+        end
     elseif event == "PLAYER_TARGET_CHANGED" then
         if UnitAffectingCombat("player") or forceShow then
             UpdateIcon()
@@ -482,6 +504,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             C_Timer.After(0.4, function()
                 if not fadeOutPending then return end
                 fadeOutPending = false
+                fkCastFallbackUntil = 0
                 if not forceShow and not isUnlocked then
                     frame:Hide()
                     frame:SetAlpha(alpha)  -- restaurar alpha para la proxima vez
@@ -575,6 +598,8 @@ SlashCmdList["AOEDK"] = function(msg)
         print("  " .. L.DEBUG_SPEC .. ": " .. tostring(specIndex) .. " (necesita 3=Unholy)")
         print("  " .. L.DEBUG_COMBAT .. ": " .. tostring(inCombat))
         print("  " .. L.DEBUG_ARMY .. " / Forbidden Knowledge: " .. tostring(fkActive))
+        local fkFallbackRemaining = math.max(0, (fkCastFallbackUntil or 0) - GetTime())
+        print("  FK cast fallback (s): " .. string.format("%.1f", fkFallbackRemaining))
         print("  Hero talent: " .. (cachedHeroTalent or "unknown") .. 
                " (modifier: " .. (heroMod >= 0 and "+" or "") .. heroMod .. ")")
         print("  Threshold: " .. baseThreshold .. " => " .. effectiveThreshold .. 

@@ -1,8 +1,8 @@
-## Interface: 120001
+## Interface: 120005
 ## Title: Unholy Death Knight Target Helper
 ## Notes: Shows Death Coil (1-3 targets) or Epidemic (4+ targets) based on nearby enemy count. | Muestra Espiral de la Muerte (1-3 objetivos) o Epidemia (4+ objetivos) segun la cantidad de enemigos cercanos.
 ## Author: Caezar47
-## Version: 1.1.1
+## Version: 1.1.2
 ## DefaultState: enabled
 ## SavedVariables: AoeDKDB
 ## IconTexture: Interface\Icons\Spell_DeathKnight_Explode_Ghoul

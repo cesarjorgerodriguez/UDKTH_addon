@@ -7,6 +7,7 @@ ns.DEATH_COIL_ID       = 47541       -- Espiral de la Muerte
 ns.EPIDEMIC_ID         = 207317      -- Epidemia
 ns.NECROTIC_COIL_ID    = 434179      -- Necrotic Coil (mejorado con Ejercito)
 ns.GRAVEYARD_ID        = 458714      -- Graveyard (mejorado con Ejercito)
+ns.ARMY_OF_THE_DEAD_ID = 42650       -- Ejercito de muertos (cast de jugador)
 
 ---------------------------------------------------------------------------
 -- Buff IDs
